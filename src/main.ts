@@ -1,23 +1,34 @@
 import * as THREE from 'three';
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
+const aspect = window.innerWidth / window.innerHeight;
+const viewSize = 10; // controls "zoom" — smaller = more zoomed in
+const camera = new THREE.OrthographicCamera(
+  (-viewSize * aspect) / 2,
+  (viewSize * aspect) / 2,
+  viewSize / 2,
+  -viewSize / 2,
   0.1,
   1000
 );
-camera.position.z = 5;
+
+// classic isometric angle
+camera.position.set(10, 10, 10);
+camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// placeholder cube to confirm the pipeline renders
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
+import { spawnUnit } from './entityStore';
+import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
+
+scene.add(instancedUnits);
+
+// spawn a few test units
+spawnUnit(-2, 0, 0);
+spawnUnit(0, 0, 0);
+spawnUnit(2, 0, 0);
 
 const light = new THREE.DirectionalLight(0xffffff, 2);
 light.position.set(2, 2, 2);
@@ -25,14 +36,17 @@ scene.add(light);
 
 function animate() {
   requestAnimationFrame(animate);
-  cube.rotation.x += 0.01;
-  cube.rotation.y += 0.01;
+  syncInstancedMesh();
   renderer.render(scene, camera);
 }
 animate();
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const aspect = window.innerWidth / window.innerHeight;
+  camera.left = (-viewSize * aspect) / 2;
+  camera.right = (viewSize * aspect) / 2;
+  camera.top = viewSize / 2;
+  camera.bottom = -viewSize / 2;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
