@@ -3,6 +3,9 @@
 import * as THREE from 'three';
 import { spawnUnit } from './entityStore';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
+import { initSim, tick } from './sim/tick';
+
+await initSim();
 
 // ─── Scene ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +64,7 @@ spawnUnit(2, 0, 0);
 function animate() {
   requestAnimationFrame(animate);
   syncInstancedMesh();
+  tick(0.01);
   renderer.render(scene, camera);
 }
 
