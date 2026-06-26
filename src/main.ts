@@ -61,13 +61,30 @@ spawnUnit(2, 0, 0);
 
 // ─── Render Loop ─────────────────────────────────────────────────────────────
 
+const SIM_RATE = 1 / 45; // 15 ticks per second
+let lastTime = performance.now();
+let accumulator = 0;
+
 function animate() {
   requestAnimationFrame(animate);
+
+  const now = performance.now();
+  let frameTime = (now - lastTime) / 1000; // seconds
+  lastTime = now;
+
+  // avoid spiral-of-death if a frame takes way too long (e.g. tab was backgrounded)
+  frameTime = Math.min(frameTime, 0.25);
+
+  accumulator += frameTime;
+
+  while (accumulator >= SIM_RATE) {
+    tick(SIM_RATE); // pass fixed delta, not variable frame time
+    accumulator -= SIM_RATE;
+  }
+
   syncInstancedMesh();
-  tick(0.01);
   renderer.render(scene, camera);
 }
-
 animate();
 
 // ─── Resize Handler ──────────────────────────────────────────────────────────
