@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { spawnUnit } from './entityStore';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
+import { generate_heightmap } from 'wasm-sim';
 
 await initSim();
 
@@ -44,11 +45,23 @@ scene.add(light);
 
 // ─── Ground ──────────────────────────────────────────────────────────────────
 
-const groundGeometry = new THREE.PlaneGeometry(20, 20, 32, 32);
+const segments = 32;
+const groundGeometry = new THREE.PlaneGeometry(20, 20, segments, segments);
 const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-ground.rotation.x = -Math.PI / 2; // rotate flat onto the XZ plane
+ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
+
+const gridSize = segments + 1; // PlaneGeometry has segments+1 vertices per side
+const heightmap = new Float32Array(gridSize * gridSize);
+generate_heightmap(heightmap, gridSize, gridSize, 0, 0, 0.15);
+
+const posAttr = groundGeometry.attributes.position;
+for (let i = 0; i < posAttr.count; i++) {
+  posAttr.setZ(i, heightmap[i] * 0.5); // 0.5 = height multiplier, tune to taste
+}
+posAttr.needsUpdate = true;
+groundGeometry.computeVertexNormals();
 
 // ─── Units ───────────────────────────────────────────────────────────────────
 
