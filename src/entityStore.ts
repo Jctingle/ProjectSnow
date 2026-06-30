@@ -5,6 +5,12 @@ export const hp = new Uint16Array(MAX_UNITS);
 export const state = new Uint8Array(MAX_UNITS); // flags: alive, moving, etc.
 export const programId = new Uint16Array(MAX_UNITS);
 
+export const apc = {
+  x: 0,
+  z: 0,
+  y: 0, // terrain-following height
+};
+
 export let activeCount = 0;
 
 export function spawnUnit(x: number, y: number, z: number): number {

@@ -1,7 +1,7 @@
 // ─── Imports ─────────────────────────────────────────────────────────────────
 
 import * as THREE from 'three';
-import { spawnUnit } from './entityStore';
+import { spawnUnit, apc } from './entityStore';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
 import { generate_heightmap } from 'wasm-sim';
@@ -72,6 +72,11 @@ spawnUnit(-2, 0, 0);
 spawnUnit(0, 0, 0);
 spawnUnit(2, 0, 0);
 
+const apcGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+const apcMaterial = new THREE.MeshStandardMaterial({ color: 0xff8844 });
+const apcMesh = new THREE.Mesh(apcGeometry, apcMaterial);
+scene.add(apcMesh);
+
 // ─── Render Loop ─────────────────────────────────────────────────────────────
 
 const SIM_RATE = 1 / 45; // 15 ticks per second
@@ -95,6 +100,7 @@ function animate() {
     accumulator -= SIM_RATE;
   }
 
+  apcMesh.position.set(apc.x, apc.y, apc.z);
   syncInstancedMesh();
   renderer.render(scene, camera);
 }

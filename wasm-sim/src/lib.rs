@@ -27,3 +27,11 @@ pub fn generate_heightmap(
         }
     }
 }
+
+#[wasm_bindgen]
+pub fn sample_height(x: f64, z: f64, seed_x: f64, seed_y: f64, scale: f64) -> f32 {
+    let simplex = Simplex::new(42);
+    let nx = (x + seed_x) * scale;
+    let nz = (z + seed_y) * scale;
+    simplex.get([nx, nz]) as f32
+}
