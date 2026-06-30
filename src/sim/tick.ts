@@ -12,5 +12,5 @@ export function tick(delta: number) {
   if (!wasmReady) return;
   nudge_positions(positions, activeCount, delta);
 
-  apc.y = sample_height(apc.x, apc.z, 0, 0, 0.15) * 0.5;
+  apc.y = sample_height(apc.x, apc.z, 0, 0, 0.15) * 3;
 }

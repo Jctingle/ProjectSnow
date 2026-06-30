@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { spawnUnit, apc } from './entityStore';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
-import { generate_heightmap } from 'wasm-sim';
+import { sample_height } from 'wasm-sim';
 
 await initSim();
 
@@ -43,6 +43,9 @@ const light = new THREE.DirectionalLight(0xffffff, 2);
 light.position.set(2, 2, 2);
 scene.add(light);
 
+const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 1.5);
+scene.add(ambient);
+
 // ─── Ground ──────────────────────────────────────────────────────────────────
 
 const segments = 32;
@@ -52,13 +55,12 @@ const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-const gridSize = segments + 1; // PlaneGeometry has segments+1 vertices per side
-const heightmap = new Float32Array(gridSize * gridSize);
-generate_heightmap(heightmap, gridSize, gridSize, 0, 0, 0.15);
-
 const posAttr = groundGeometry.attributes.position;
 for (let i = 0; i < posAttr.count; i++) {
-  posAttr.setZ(i, heightmap[i] * 0.5); // 0.5 = height multiplier, tune to taste
+  // After rotating the plane by -PI/2 around X, world Z maps to -localY.
+  const localX = posAttr.getX(i);
+  const localY = posAttr.getY(i);
+  posAttr.setZ(i, sample_height(localX, -localY, 0, 0, 0.15) * 3);
 }
 posAttr.needsUpdate = true;
 groundGeometry.computeVertexNormals();
@@ -75,6 +77,7 @@ spawnUnit(2, 0, 0);
 const apcGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
 const apcMaterial = new THREE.MeshStandardMaterial({ color: 0xff8844 });
 const apcMesh = new THREE.Mesh(apcGeometry, apcMaterial);
+const apcHalfHeight = 0.3;
 scene.add(apcMesh);
 
 // ─── Render Loop ─────────────────────────────────────────────────────────────
@@ -82,6 +85,7 @@ scene.add(apcMesh);
 const SIM_RATE = 1 / 45; // 15 ticks per second
 let lastTime = performance.now();
 let accumulator = 0;
+let apcAngle = 0;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -93,6 +97,10 @@ function animate() {
   // avoid spiral-of-death if a frame takes way too long (e.g. tab was backgrounded)
   frameTime = Math.min(frameTime, 0.25);
 
+  apcAngle += 0.01;
+  apc.x = Math.cos(apcAngle) * 5;
+  apc.z = Math.sin(apcAngle) * 5;
+
   accumulator += frameTime;
 
   while (accumulator >= SIM_RATE) {
@@ -100,7 +108,7 @@ function animate() {
     accumulator -= SIM_RATE;
   }
 
-  apcMesh.position.set(apc.x, apc.y, apc.z);
+  apcMesh.position.set(apc.x, apc.y + apcHalfHeight, apc.z);
   syncInstancedMesh();
   renderer.render(scene, camera);
 }
