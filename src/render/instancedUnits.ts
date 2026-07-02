@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import { positions, activeCount } from '../entityStore';
 
 const MAX_UNITS = 256;
-const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+const geometry = new THREE.BoxGeometry(0.075, 0.075, 0.075);
 const material = new THREE.MeshStandardMaterial({ color: 0x66ccff });
 
 export const instancedUnits = new THREE.InstancedMesh(geometry, material, MAX_UNITS);
-instancedUnits.count = 0; // nothing rendered until units are spawned
+instancedUnits.count = 0;
 
 const dummy = new THREE.Object3D();
 

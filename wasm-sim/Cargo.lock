@@ -161,5 +161,6 @@ name = "wasm-sim"
 version = "0.1.0"
 dependencies = [
  "noise",
+ "once_cell",
  "wasm-bindgen",
 ]

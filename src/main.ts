@@ -1,53 +1,38 @@
-// ─── Imports ─────────────────────────────────────────────────────────────────
-
 import * as THREE from 'three';
+import './style.css';
 import { spawnUnit, apc } from './entityStore';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
 import { sample_height } from 'wasm-sim';
-
-await initSim();
-
-// ─── Scene ───────────────────────────────────────────────────────────────────
-
-const scene = new THREE.Scene();
-
-// ─── Camera ──────────────────────────────────────────────────────────────────
-
-// viewSize controls zoom level — smaller values zoom in, larger zoom out
+const scene    = new THREE.Scene();
+const aspect   = window.innerWidth / window.innerHeight;
 const viewSize = 10;
-const aspect = window.innerWidth / window.innerHeight;
-
-const camera = new THREE.OrthographicCamera(
-  (-viewSize * aspect) / 2, // left
-  (viewSize * aspect) / 2,  // right
-  viewSize / 2,              // top
-  -viewSize / 2,             // bottom
-  0.1,                       // near
-  1000                       // far
+const camera   = new THREE.OrthographicCamera(
+  (-viewSize * aspect) / 2,
+  (viewSize * aspect) / 2,
+   viewSize / 2,
+  -viewSize / 2,
+  0.1,
+  1000
 );
-
-// Equal offset on all three axes gives the classic isometric angle
 camera.position.set(10, 10, 10);
 camera.lookAt(0, 0, 0);
-
-// ─── Renderer ────────────────────────────────────────────────────────────────
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// ─── Lighting ────────────────────────────────────────────────────────────────
-
-const light = new THREE.DirectionalLight(0xffffff, 2);
-light.position.set(2, 2, 2);
-scene.add(light);
-
-const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 1.5);
+// lights
+const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+dirLight.intensity = 1.5;
+dirLight.position.set(2, 2, 2);
+scene.add(dirLight);
+const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 0.6);
 scene.add(ambient);
 
-// ─── Ground ──────────────────────────────────────────────────────────────────
+await initSim();
 
+// terrain
 const segments = 32;
 const groundGeometry = new THREE.PlaneGeometry(20, 20, segments, segments);
 const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
@@ -57,72 +42,68 @@ scene.add(ground);
 
 const posAttr = groundGeometry.attributes.position;
 for (let i = 0; i < posAttr.count; i++) {
-  // After rotating the plane by -PI/2 around X, world Z maps to -localY.
-  const localX = posAttr.getX(i);
-  const localY = posAttr.getY(i);
-  posAttr.setZ(i, sample_height(localX, -localY, 0, 0, 0.15) * 3);
+  const lx = posAttr.getX(i);
+  const ly = posAttr.getY(i);
+  const h  = sample_height(lx, -ly, 0, 0, 0.15);
+  posAttr.setZ(i, h * 2.0);
 }
 posAttr.needsUpdate = true;
 groundGeometry.computeVertexNormals();
 
-// ─── Units ───────────────────────────────────────────────────────────────────
-
-scene.add(instancedUnits);
-
-// Spawn a few test units along the X axis
-spawnUnit(-2, 0, 0);
-spawnUnit(0, 0, 0);
-spawnUnit(2, 0, 0);
-
-const apcGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
-const apcMaterial = new THREE.MeshStandardMaterial({ color: 0xff8844 });
-const apcMesh = new THREE.Mesh(apcGeometry, apcMaterial);
-const apcHalfHeight = 0.3;
+// APC
+const apcMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.3, 0.3),
+  new THREE.MeshStandardMaterial({ color: 0xff8844 })
+);
 scene.add(apcMesh);
 
-// ─── Render Loop ─────────────────────────────────────────────────────────────
+// units
+scene.add(instancedUnits);
+for (let i = 0; i < 20; i++) {
+  const x = ((i % 5) - 2) * 0.8;
+  const z = (Math.floor(i / 5) - 2) * 0.8;
+  spawnUnit(x, 0, z);
+}
 
-const SIM_RATE = 1 / 45; // 15 ticks per second
-let lastTime = performance.now();
-let accumulator = 0;
+// APC circle path
 let apcAngle = 0;
+
+// sim loop
+const SIM_RATE = 1 / 60;
+let lastTime   = performance.now();
+let accumulator = 0;
 
 function animate() {
   requestAnimationFrame(animate);
 
   const now = performance.now();
-  let frameTime = (now - lastTime) / 1000; // seconds
+  let frameTime = Math.min((now - lastTime) / 1000, 0.25);
   lastTime = now;
+  accumulator += frameTime;
 
-  // avoid spiral-of-death if a frame takes way too long (e.g. tab was backgrounded)
-  frameTime = Math.min(frameTime, 0.25);
-
-  apcAngle += 0.01;
+  // APC movement — 1/3 speed
+  apcAngle += 0.0033;
   apc.x = Math.cos(apcAngle) * 5;
   apc.z = Math.sin(apcAngle) * 5;
 
-  accumulator += frameTime;
-
   while (accumulator >= SIM_RATE) {
-    tick(SIM_RATE); // pass fixed delta, not variable frame time
+    tick(SIM_RATE);
     accumulator -= SIM_RATE;
   }
 
-  apcMesh.position.set(apc.x, apc.y + apcHalfHeight, apc.z);
+  apcMesh.position.set(apc.x, apc.y + 0.15, apc.z);
+
   syncInstancedMesh();
   renderer.render(scene, camera);
 }
 animate();
 
-// ─── Resize Handler ──────────────────────────────────────────────────────────
-
-// Orthographic cameras need their frustum bounds recalculated on resize
 window.addEventListener('resize', () => {
   const aspect = window.innerWidth / window.innerHeight;
   camera.left   = (-viewSize * aspect) / 2;
-  camera.right  = (viewSize * aspect) / 2;
-  camera.top    = viewSize / 2;
-  camera.bottom = -viewSize / 2;
+  camera.right  = ( viewSize * aspect) / 2;
+  camera.top    =   viewSize / 2;
+  camera.bottom =  -viewSize / 2;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
