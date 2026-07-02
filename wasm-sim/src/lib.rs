@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 const SEEK_APC: u8 = 0;
 const SEEK_RANDOM: u8 = 1;
 const UNIT_SPEED: f32 = 0.1; // per tick at 60Hz
+const APC_SPEED: f32 = UNIT_SPEED / 3.0;
 const TOUCH_RADIUS: f32 = 0.5;
 
 // Shared, deterministic noise generator reused across all calls.
@@ -49,6 +50,7 @@ pub fn generate_heightmap(
 /// - SEEK_APC: move toward APC.
 /// - SEEK_RANDOM: move toward per-unit random target.
 /// - On arrival: toggle state and set/consume random target.
+/// - APC moves toward its own target at 1/3 unit speed.
 /// - Always resample terrain and update unit Y for ground-follow.
 #[wasm_bindgen]
 pub fn tick_units(
@@ -57,8 +59,10 @@ pub fn tick_units(
     target_x: &mut [f32],
     target_z: &mut [f32],
     count: usize,
-    apc_x: f32,
-    apc_z: f32,
+    mut apc_x: f32,
+    mut apc_z: f32,
+    apc_target_x: f32,
+    apc_target_z: f32,
     rand_x: f32,
     rand_z: f32,
     delta: f32,
@@ -66,7 +70,22 @@ pub fn tick_units(
     seed_y: f64,
     scale: f64,
     height_mult: f32,
-) {
+) -> Vec<f32> {
+    let apc_dx = apc_target_x - apc_x;
+    let apc_dz = apc_target_z - apc_z;
+    let apc_dist = (apc_dx * apc_dx + apc_dz * apc_dz).sqrt();
+
+    if apc_dist >= TOUCH_RADIUS {
+        let step = APC_SPEED * delta * 60.0;
+        let move_dist = step.min(apc_dist);
+        let apc_nx = apc_dx / apc_dist;
+        let apc_nz = apc_dz / apc_dist;
+        apc_x += apc_nx * move_dist;
+        apc_z += apc_nz * move_dist;
+    }
+
+    let apc_y = sample(apc_x as f64, apc_z as f64, seed_x, seed_y, scale) * height_mult;
+
     for i in 0..count {
         let ux = positions[i * 3];
         let uz = positions[i * 3 + 2];
@@ -105,4 +124,6 @@ pub fn tick_units(
             positions[i * 3 + 1] = h * height_mult + 0.04;
         }
     }
+
+    vec![apc_x, apc_z, apc_y]
 }

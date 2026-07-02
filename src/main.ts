@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import './style.css';
 import { spawnUnit, apc } from './entityStore';
+import { initCameraControls } from './input/camera';
+import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
 import { sample_height } from 'wasm-sim';
@@ -31,6 +33,12 @@ const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 0.6);
 scene.add(ambient);
 
 await initSim();
+
+initCameraControls(camera, renderer.domElement);
+initInputRouter(camera, renderer);
+
+apc.targetX = apc.x;
+apc.targetZ = apc.z;
 
 // terrain
 const segments = 32;
@@ -72,9 +80,6 @@ for (let i = 0; i < UNIT_COUNT; i++) {
   spawnUnit(x, 0, z);
 }
 
-// APC circle path
-let apcAngle = 0;
-
 // sim loop
 const SIM_RATE = 1 / 60;
 let lastTime   = performance.now();
@@ -87,11 +92,6 @@ function animate() {
   let frameTime = Math.min((now - lastTime) / 1000, 0.25);
   lastTime = now;
   accumulator += frameTime;
-
-  // APC movement — 1/3 speed
-  apcAngle += 0.0033;
-  apc.x = Math.cos(apcAngle) * 5;
-  apc.z = Math.sin(apcAngle) * 5;
 
   while (accumulator >= SIM_RATE) {
     tick(SIM_RATE);

@@ -12,7 +12,7 @@ export const SEEK_RANDOM = 1;
 
 export let activeCount = 0;
 
-export const apc = { x: 0, y: 0, z: 0 };
+export const apc = { x: 0, y: 0, z: 0, targetX: 0, targetZ: 0 };
 
 export function spawnUnit(x: number, y: number, z: number): number {
   const id = activeCount;

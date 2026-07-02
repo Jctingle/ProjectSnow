@@ -1,4 +1,4 @@
-import init, { tick_units, sample_height } from 'wasm-sim';
+import init, { tick_units } from 'wasm-sim';
 import {
   positions, states, targetX, targetZ,
   activeCount, apc
@@ -20,11 +20,8 @@ export async function initSim() {
 export function tick(delta: number) {
   if (!wasmReady) return;
 
-  // update APC height
-  apc.y = sample_height(apc.x, apc.z, SEED_X, SEED_Y, SCALE) * HEIGHT_MULT;
-
   // one batched WASM call for all units
-  tick_units(
+  const [nextApcX, nextApcZ, nextApcY] = tick_units(
     positions,
     states,
     targetX,
@@ -32,6 +29,8 @@ export function tick(delta: number) {
     activeCount,
     apc.x,
     apc.z,
+    apc.targetX,
+    apc.targetZ,
     (Math.random() * 2 - 1) * SHARD_SIZE,
     (Math.random() * 2 - 1) * SHARD_SIZE,
     delta,
@@ -40,4 +39,8 @@ export function tick(delta: number) {
     SCALE,
     HEIGHT_MULT
   );
+
+  apc.x = nextApcX;
+  apc.z = nextApcZ;
+  apc.y = nextApcY;
 }
