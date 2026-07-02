@@ -10,17 +10,17 @@ function clamp(value: number, min: number, max: number): number {
 
 export function initCameraControls(
   camera: THREE.OrthographicCamera,
-  renderer: HTMLCanvasElement,
+  canvas: HTMLCanvasElement,
 ): void {
   let isPanning = false;
   let lastX = 0;
   let lastY = 0;
 
-  renderer.addEventListener('mousedown', (event: MouseEvent) => {
-    if (event.button !== 1) {
-      return;
-    }
+  const right = new THREE.Vector3();
+  const forward = new THREE.Vector3();
 
+  canvas.addEventListener('mousedown', (event: MouseEvent) => {
+    if (event.button !== 1) return;
     event.preventDefault();
     isPanning = true;
     lastX = event.clientX;
@@ -28,20 +28,27 @@ export function initCameraControls(
   });
 
   window.addEventListener('mousemove', (event: MouseEvent) => {
-    if (!isPanning) {
-      return;
-    }
+    if (!isPanning) return;
 
     const dx = event.clientX - lastX;
     const dy = event.clientY - lastY;
     lastX = event.clientX;
     lastY = event.clientY;
 
-    const worldPerPixelX = (camera.right - camera.left) / renderer.clientWidth;
-    const worldPerPixelY = (camera.top - camera.bottom) / renderer.clientHeight;
+    const worldPerPixel = (camera.top - camera.bottom) / window.innerHeight;
 
-    camera.position.x -= dx * worldPerPixelX;
-    camera.position.z += dy * worldPerPixelY;
+    // right vector from camera matrix column 0, flattened to XZ
+    right.setFromMatrixColumn(camera.matrixWorld, 0);
+    right.y = 0;
+    right.normalize();
+
+    // forward vector from camera matrix column 1, flattened to XZ
+    forward.setFromMatrixColumn(camera.matrixWorld, 1);
+    forward.y = 0;
+    forward.normalize();
+
+    camera.position.addScaledVector(right, -dx * worldPerPixel);
+    camera.position.addScaledVector(forward, dy * worldPerPixel * Math.SQRT2);
     camera.updateMatrixWorld();
   });
 
@@ -50,22 +57,22 @@ export function initCameraControls(
   };
 
   window.addEventListener('mouseup', endPan);
-  renderer.addEventListener('mouseleave', endPan);
+  canvas.addEventListener('mouseleave', endPan);
 
-  renderer.addEventListener(
+  canvas.addEventListener(
     'wheel',
     (event: WheelEvent) => {
       event.preventDefault();
 
-      const aspect = renderer.clientWidth / renderer.clientHeight;
+      const aspect = window.innerWidth / window.innerHeight;
       const currentViewSize = camera.top - camera.bottom;
-      const scaledViewSize = currentViewSize * Math.exp(event.deltaY * ZOOM_SENSITIVITY);
-      const nextViewSize = clamp(scaledViewSize, MIN_VIEW_SIZE, MAX_VIEW_SIZE);
+      const scaled = currentViewSize * Math.exp(event.deltaY * ZOOM_SENSITIVITY);
+      const next = clamp(scaled, MIN_VIEW_SIZE, MAX_VIEW_SIZE);
 
-      camera.top = nextViewSize * 0.5;
-      camera.bottom = -nextViewSize * 0.5;
-      camera.right = nextViewSize * aspect * 0.5;
-      camera.left = -nextViewSize * aspect * 0.5;
+      camera.top    =  next * 0.5;
+      camera.bottom = -next * 0.5;
+      camera.right  =  next * aspect * 0.5;
+      camera.left   = -next * aspect * 0.5;
       camera.updateProjectionMatrix();
     },
     { passive: false },
