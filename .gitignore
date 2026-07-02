@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+wasm-sim/pkg/
+wasm-sim/target/
 
 # Editor directories and files
 .vscode/*
