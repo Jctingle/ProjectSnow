@@ -59,9 +59,16 @@ scene.add(apcMesh);
 
 // units
 scene.add(instancedUnits);
-for (let i = 0; i < 20; i++) {
-  const x = ((i % 5) - 2) * 0.8;
-  const z = (Math.floor(i / 5) - 2) * 0.8;
+const UNIT_COUNT = 5;
+const UNIT_SPACING = 0.35;
+const cols = Math.ceil(Math.sqrt(UNIT_COUNT));
+const rows = Math.ceil(UNIT_COUNT / cols);
+
+for (let i = 0; i < UNIT_COUNT; i++) {
+  const col = i % cols;
+  const row = Math.floor(i / cols);
+  const x = (col - (cols - 1) / 2) * UNIT_SPACING;
+  const z = (row - (rows - 1) / 2) * UNIT_SPACING;
   spawnUnit(x, 0, z);
 }
 

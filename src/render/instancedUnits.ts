@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { positions, activeCount } from '../entityStore';
+import { positions, activeCount, MAX_UNITS } from '../entityStore';
 
-const MAX_UNITS = 256;
 const geometry = new THREE.BoxGeometry(0.075, 0.075, 0.075);
 const material = new THREE.MeshStandardMaterial({ color: 0x66ccff });
 

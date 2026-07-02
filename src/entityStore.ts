@@ -1,4 +1,4 @@
-export const MAX_UNITS = 256;
+export const MAX_UNITS = 500;
 
 export const positions  = new Float32Array(MAX_UNITS * 3);
 export const hp         = new Uint16Array(MAX_UNITS);
