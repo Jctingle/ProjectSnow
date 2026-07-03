@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import type { Sim } from 'wasm-sim';
+import { GROUND_SEGMENTS, GROUND_SIZE } from '../sim/config';
 
 export function createTerrainMesh(sim: Sim): THREE.Mesh {
-  const segments = 32;
-  const geometry = new THREE.PlaneGeometry(20, 20, segments, segments);
+  const geometry = new THREE.PlaneGeometry(
+    GROUND_SIZE,
+    GROUND_SIZE,
+    GROUND_SEGMENTS,
+    GROUND_SEGMENTS
+  );
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const ground = new THREE.Mesh(geometry, material);
 

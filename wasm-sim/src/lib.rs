@@ -103,4 +103,8 @@ impl Sim {
     pub fn set_apc_target(&mut self, x: f32, z: f32) {
         self.apc.set_target(x, z);
     }
+
+    pub fn apc_touch_radius(&self) -> f32 {
+        self.apc.touch_radius()
+    }
 }

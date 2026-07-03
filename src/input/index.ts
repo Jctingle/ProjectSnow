@@ -10,9 +10,6 @@ export type GameMode =
 
 export let gameMode: GameMode = { type: 'freeRoam' };
 
-const APC_TOUCH_RADIUS = 0.3;
-const APC_TOUCH_RADIUS_SQ = APC_TOUCH_RADIUS * APC_TOUCH_RADIUS;
-
 type DebugMarkerState = {
   marker: THREE.Mesh;
   targetX: number;
@@ -26,6 +23,10 @@ export function initInputRouter(
   scene: THREE.Scene,
 ): () => void {
   const canvas = renderer.domElement;
+  const apcTouchRadiusSq = (() => {
+    const apcTouchRadius = getSim().apc_touch_radius();
+    return apcTouchRadius * apcTouchRadius;
+  })();
   let debugMarkerState: DebugMarkerState | null = null;
 
   const clearDebugMarker = (): void => {
@@ -102,7 +103,7 @@ export function initInputRouter(
     const dx = debugMarkerState.targetX - sim.apc_x();
     const dz = debugMarkerState.targetZ - sim.apc_z();
     const distSq = dx * dx + dz * dz;
-    if (distSq <= APC_TOUCH_RADIUS_SQ) {
+    if (distSq <= apcTouchRadiusSq) {
       clearDebugMarker();
     }
   };

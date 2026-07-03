@@ -59,4 +59,8 @@ impl Apc {
     pub fn z(&self) -> f32 {
         self.z
     }
+
+    pub fn touch_radius(&self) -> f32 {
+        APC_TOUCH_RADIUS
+    }
 }

@@ -5,5 +5,8 @@ export const SCALE = 0.15;
 export const HEIGHT_MULT = 2.0;
 export const SHARD_HALF = 8;
 
+export const GROUND_SIZE = 96;
+export const GROUND_SEGMENTS = 32;
+
 export const UNIT_COUNT = 25;
 export const UNIT_SPACING = 0.35;
