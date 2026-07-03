@@ -1,14 +1,14 @@
 import init, { Sim } from 'wasm-sim';
+import {
+  HEIGHT_MULT,
+  NOISE_SEED,
+  SCALE,
+  SEED_X,
+  SEED_Y,
+  SHARD_HALF,
+} from './sim/config';
 
 export const MAX_UNITS = 5000;
-
-// Terrain / sim tuning (moved here from tick.ts so Sim construction owns them)
-const NOISE_SEED = 42;
-const SEED_X = 0;
-const SEED_Y = 0;
-const SCALE = 0.15;
-const HEIGHT_MULT = 2.0;
-const SHARD_HALF = 8; // wander targets land in [-8, 8]
 
 // Fields the sim doesn't touch stay as plain JS TypedArrays.
 export const hp = new Uint16Array(MAX_UNITS);

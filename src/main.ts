@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import './style.css';
-import { spawnUnit, getSim } from './entityStore';
+import { getSim } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
+import { createApcMesh, syncApcMesh } from './world/apc';
+import { createTerrainMesh } from './world/terrain';
+import { spawnInitialUnits } from './world/units';
 
 const scene    = new THREE.Scene();
 const aspect   = window.innerWidth / window.innerHeight;
@@ -41,48 +44,18 @@ initCameraControls(camera, renderer.domElement);
 sim.set_apc_target(sim.apc_x(), sim.apc_z());
 
 // terrain
-const segments = 32;
-const groundGeometry = new THREE.PlaneGeometry(20, 20, segments, segments);
-const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-ground.rotation.x = -Math.PI / 2;
+const ground = createTerrainMesh(sim);
 scene.add(ground);
 
 const updateInputRouter = initInputRouter(camera, renderer, ground, scene);
 
-// One-time terrain build: raw simplex via the Sim (exact, matches what the
-// cached heightmap approximates for units). Seed/scale live inside the Sim.
-const posAttr = groundGeometry.attributes.position;
-for (let i = 0; i < posAttr.count; i++) {
-  const lx = posAttr.getX(i);
-  const ly = posAttr.getY(i);
-  const h  = sim.sample_height(lx, -ly);
-  posAttr.setZ(i, h * sim.height_mult());
-}
-posAttr.needsUpdate = true;
-groundGeometry.computeVertexNormals();
-
 // APC
-const apcMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(0.3, 0.3, 0.3),
-  new THREE.MeshStandardMaterial({ color: 0xff8844 })
-);
+const apcMesh = createApcMesh();
 scene.add(apcMesh);
 
 // units
 scene.add(instancedUnits);
-const UNIT_COUNT = 25;
-const UNIT_SPACING = 0.35;
-const cols = Math.ceil(Math.sqrt(UNIT_COUNT));
-const rows = Math.ceil(UNIT_COUNT / cols);
-
-for (let i = 0; i < UNIT_COUNT; i++) {
-  const col = i % cols;
-  const row = Math.floor(i / cols);
-  const x = (col - (cols - 1) / 2) * UNIT_SPACING;
-  const z = (row - (rows - 1) / 2) * UNIT_SPACING;
-  spawnUnit(x, z); // Sim snaps Y to terrain itself
-}
+spawnInitialUnits();
 
 // sim loop
 const SIM_RATE = 1 / 60;
@@ -102,7 +75,7 @@ function animate() {
     accumulator -= SIM_RATE;
   }
 
-  apcMesh.position.set(sim.apc_x(), sim.apc_y() + 0.15, sim.apc_z());
+  syncApcMesh(apcMesh, sim);
   updateInputRouter();
 
   syncInstancedMesh();
