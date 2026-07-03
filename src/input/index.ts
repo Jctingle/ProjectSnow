@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { apc } from '../entityStore';
+// import { apc } from '../entityStore';
 import { getRaycastPoint } from './raycast';
 import { clearSelection } from './selection';
+import { getSim } from '../entityStore';
 
 export type GameMode =
   | { type: 'freeRoam' }
@@ -40,8 +41,8 @@ export function initInputRouter(
       return;
     }
 
-    apc.targetX = worldPoint.x;
-    apc.targetZ = worldPoint.z;
+
+  getSim().set_apc_target(worldPoint.x, worldPoint.z);
   });
 
   window.addEventListener('keydown', (event: KeyboardEvent) => {

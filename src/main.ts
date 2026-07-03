@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import './style.css';
-import { spawnUnit, apc } from './entityStore';
+import { spawnUnit, getSim } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { initSim, tick } from './sim/tick';
-import { sample_height } from 'wasm-sim';
+
 const scene    = new THREE.Scene();
 const aspect   = window.innerWidth / window.innerHeight;
 const viewSize = 10;
@@ -32,13 +32,14 @@ scene.add(dirLight);
 const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 0.6);
 scene.add(ambient);
 
-await initSim();
+await initSim(); // initSim already calls generate_heightmap(64, 64)
+const sim = getSim();
 
 initCameraControls(camera, renderer.domElement);
 initInputRouter(camera, renderer);
 
-apc.targetX = apc.x;
-apc.targetZ = apc.z;
+// APC starts parked where it is
+sim.set_apc_target(sim.apc_x(), sim.apc_z());
 
 // terrain
 const segments = 32;
@@ -48,11 +49,13 @@ const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
+// One-time terrain build: raw simplex via the Sim (exact, matches what the
+// cached heightmap approximates for units). Seed/scale live inside the Sim.
 const posAttr = groundGeometry.attributes.position;
 for (let i = 0; i < posAttr.count; i++) {
   const lx = posAttr.getX(i);
   const ly = posAttr.getY(i);
-  const h  = sample_height(lx, -ly, 0, 0, 0.15);
+  const h  = sim.sample_height(lx, -ly);
   posAttr.setZ(i, h * 2.0);
 }
 posAttr.needsUpdate = true;
@@ -77,7 +80,7 @@ for (let i = 0; i < UNIT_COUNT; i++) {
   const row = Math.floor(i / cols);
   const x = (col - (cols - 1) / 2) * UNIT_SPACING;
   const z = (row - (rows - 1) / 2) * UNIT_SPACING;
-  spawnUnit(x, 0, z);
+  spawnUnit(x, z); // Sim snaps Y to terrain itself
 }
 
 // sim loop
@@ -98,7 +101,7 @@ function animate() {
     accumulator -= SIM_RATE;
   }
 
-  apcMesh.position.set(apc.x, apc.y + 0.15, apc.z);
+  apcMesh.position.set(sim.apc_x(), sim.apc_y() + 0.15, sim.apc_z());
 
   syncInstancedMesh();
   renderer.render(scene, camera);
