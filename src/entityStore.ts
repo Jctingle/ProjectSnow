@@ -1,6 +1,6 @@
 import init, { Sim } from 'wasm-sim';
 
-export const MAX_UNITS = 500;
+export const MAX_UNITS = 5000;
 
 // Terrain / sim tuning (moved here from tick.ts so Sim construction owns them)
 const NOISE_SEED = 42;
@@ -68,7 +68,8 @@ export function getStates(): Uint8Array {
 
 /**
  * Zero-copy view over the cached heightmap. Call AFTER
- * sim.generate_heightmap(w, h). Build the terrain mesh from this so the
+ * sim.generate_heightmap(gridW, gridH, worldW, worldH). Build the terrain
+ * mesh from this so the
  * ground and unit height-following are guaranteed to agree.
  */
 export function getHeightmap(width: number, height: number): Float32Array {

@@ -4,10 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "postinstall": "cd wasm-sim && wasm-pack build --target web",
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "wasm:build": "cd wasm-sim && wasm-pack build --target web",
+    "postinstall": "npm run wasm:build",
+    "dev": "npm run wasm:build && vite --host 0.0.0.0",
+    "build": "npm run wasm:build && tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",

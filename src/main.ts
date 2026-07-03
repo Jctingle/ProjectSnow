@@ -32,11 +32,10 @@ scene.add(dirLight);
 const ambient = new THREE.HemisphereLight(0xffffff, 0x888888, 0.6);
 scene.add(ambient);
 
-await initSim(); // initSim already calls generate_heightmap(64, 64)
+await initSim(); // initSim already builds the cached heightmap
 const sim = getSim();
 
 initCameraControls(camera, renderer.domElement);
-initInputRouter(camera, renderer);
 
 // APC starts parked where it is
 sim.set_apc_target(sim.apc_x(), sim.apc_z());
@@ -49,6 +48,8 @@ const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
+const updateInputRouter = initInputRouter(camera, renderer, ground, scene);
+
 // One-time terrain build: raw simplex via the Sim (exact, matches what the
 // cached heightmap approximates for units). Seed/scale live inside the Sim.
 const posAttr = groundGeometry.attributes.position;
@@ -56,7 +57,7 @@ for (let i = 0; i < posAttr.count; i++) {
   const lx = posAttr.getX(i);
   const ly = posAttr.getY(i);
   const h  = sim.sample_height(lx, -ly);
-  posAttr.setZ(i, h * 2.0);
+  posAttr.setZ(i, h * sim.height_mult());
 }
 posAttr.needsUpdate = true;
 groundGeometry.computeVertexNormals();
@@ -70,7 +71,7 @@ scene.add(apcMesh);
 
 // units
 scene.add(instancedUnits);
-const UNIT_COUNT = 5;
+const UNIT_COUNT = 25;
 const UNIT_SPACING = 0.35;
 const cols = Math.ceil(Math.sqrt(UNIT_COUNT));
 const rows = Math.ceil(UNIT_COUNT / cols);
@@ -102,6 +103,7 @@ function animate() {
   }
 
   apcMesh.position.set(sim.apc_x(), sim.apc_y() + 0.15, sim.apc_z());
+  updateInputRouter();
 
   syncInstancedMesh();
   renderer.render(scene, camera);

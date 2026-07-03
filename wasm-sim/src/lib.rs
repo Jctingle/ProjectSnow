@@ -8,7 +8,7 @@ const SEEK_APC: u8 = 0;
 const SEEK_RANDOM: u8 = 1;
 const UNIT_SPEED: f32 = 0.1; // per tick at 60Hz
 const APC_SPEED: f32 = UNIT_SPEED / 3.0;
-const TOUCH_RADIUS: f32 = 0.5;
+const TOUCH_RADIUS: f32 = 0.3;
 const TOUCH_RADIUS_SQ: f32 = TOUCH_RADIUS * TOUCH_RADIUS;
 const UNIT_Y_OFFSET: f32 = 0.04;
 
