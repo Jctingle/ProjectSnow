@@ -43,6 +43,8 @@ pub struct Sim {
     hm_height: usize,
     hm_half_w: f32, // world half-extent covered by the heightmap (x)
     hm_half_h: f32, // world half-extent covered by the heightmap (z)
+    hm_cell_w: f32, // world units per heightmap cell along x
+    hm_cell_h: f32, // world units per heightmap cell along z
 
     // --- wander bounds + RNG ---
     shard_half: f32, // random targets land in [-shard_half, shard_half]
@@ -84,6 +86,8 @@ impl Sim {
             hm_height: 0,
             hm_half_w: 0.0,
             hm_half_h: 0.0,
+            hm_cell_w: 1.0,
+            hm_cell_h: 1.0,
             shard_half,
             rng: rng_seed | 1, // xorshift must not start at 0
         }
@@ -101,24 +105,60 @@ impl Sim {
             .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale]) as f32
     }
 
-    /// Generate and cache the heightmap. Grid cell (col, row) maps to world
-    /// coords (col - width/2, row - height/2), matching the original
-    /// `generate_heightmap` convention, so the terrain mesh built from this
-    /// buffer lines up exactly with unit ground-following.
-    pub fn generate_heightmap(&mut self, width: usize, height: usize) {
-        self.heightmap = vec![0.0; width * height];
-        self.hm_width = width;
-        self.hm_height = height;
-        self.hm_half_w = width as f32 / 2.0;
-        self.hm_half_h = height as f32 / 2.0;
+    /// Generate and cache the heightmap over the provided world span.
+    /// Grid resolution and world coverage are decoupled so callers can
+    /// over-sample terrain features without changing play-area size.
+    pub fn generate_heightmap(
+        &mut self,
+        grid_w: usize,
+        grid_h: usize,
+        world_w: f32,
+        world_h: f32,
+    ) {
+        if grid_w == 0 || grid_h == 0 {
+            self.heightmap.clear();
+            self.hm_width = 0;
+            self.hm_height = 0;
+            self.hm_half_w = world_w * 0.5;
+            self.hm_half_h = world_h * 0.5;
+            self.hm_cell_w = world_w.max(1.0);
+            self.hm_cell_h = world_h.max(1.0);
+            return;
+        }
 
-        for row in 0..height {
-            let nz = row as f64 - (height as f64 / 2.0);
-            for col in 0..width {
-                let nx = col as f64 - (width as f64 / 2.0);
-                self.heightmap[row * width + col] = self.simplex.get([
-                    (nx + self.seed_x) * self.scale,
-                    (nz + self.seed_y) * self.scale,
+        self.heightmap = vec![0.0; grid_w * grid_h];
+        self.hm_width = grid_w;
+        self.hm_height = grid_h;
+        self.hm_half_w = world_w * 0.5;
+        self.hm_half_h = world_h * 0.5;
+        self.hm_cell_w = if grid_w > 1 {
+            (world_w / (grid_w as f32 - 1.0)).max(f32::EPSILON)
+        } else {
+            world_w.max(1.0)
+        };
+        self.hm_cell_h = if grid_h > 1 {
+            (world_h / (grid_h as f32 - 1.0)).max(f32::EPSILON)
+        } else {
+            world_h.max(1.0)
+        };
+
+        for row in 0..grid_h {
+            let vz = if grid_h > 1 {
+                row as f32 / (grid_h as f32 - 1.0)
+            } else {
+                0.5
+            };
+            let wz = (vz - 0.5) * world_h;
+            for col in 0..grid_w {
+                let vx = if grid_w > 1 {
+                    col as f32 / (grid_w as f32 - 1.0)
+                } else {
+                    0.5
+                };
+                let wx = (vx - 0.5) * world_w;
+                self.heightmap[row * grid_w + col] = self.simplex.get([
+                    (wx as f64 + self.seed_x) * self.scale,
+                    (wz as f64 + self.seed_y) * self.scale,
                 ]) as f32;
             }
         }
@@ -129,11 +169,14 @@ impl Sim {
     /// if generate_heightmap was never called).
     #[inline]
     fn height_at(&self, x: f32, z: f32) -> f32 {
-        let gx = x + self.hm_half_w;
-        let gz = z + self.hm_half_h;
+        if self.hm_width < 2 || self.hm_height < 2 {
+            return self.sample_height(x as f64, z as f64);
+        }
 
-        if self.hm_width < 2
-            || gx < 0.0
+        let gx = (x + self.hm_half_w) / self.hm_cell_w;
+        let gz = (z + self.hm_half_h) / self.hm_cell_h;
+
+        if gx < 0.0
             || gz < 0.0
             || gx > (self.hm_width - 1) as f32
             || gz > (self.hm_height - 1) as f32
@@ -234,14 +277,26 @@ impl Sim {
 
         // Split heightmap params out so the closure below doesn't need &self.
         let hm = &self.heightmap;
+        let simplex = &self.simplex;
+        let seed_x = self.seed_x;
+        let seed_y = self.seed_y;
+        let scale = self.scale;
         let (w, hgt) = (self.hm_width, self.hm_height);
         let (half_w, half_h) = (self.hm_half_w, self.hm_half_h);
+        let (cell_w, cell_h) = (self.hm_cell_w, self.hm_cell_h);
         let height_mult = self.height_mult;
 
         let height_at = |x: f32, z: f32| -> f32 {
-            let gx = x + half_w;
-            let gz = z + half_h;
-            if w < 2 || gx < 0.0 || gz < 0.0 || gx > (w - 1) as f32 || gz > (hgt - 1) as f32 {
+            if w < 2 || hgt < 2 {
+                return simplex.get([
+                    (x as f64 + seed_x) * scale,
+                    (z as f64 + seed_y) * scale,
+                ]) as f32;
+            }
+
+            let gx = (x + half_w) / cell_w;
+            let gz = (z + half_h) / cell_h;
+            if gx < 0.0 || gz < 0.0 || gx > (w - 1) as f32 || gz > (hgt - 1) as f32 {
                 // Outside cached extent: clamp to edge rather than eval simplex
                 // in the hot loop. Size the heightmap to cover the play area.
                 let cx = gx.clamp(0.0, (w.max(2) - 1) as f32);
@@ -314,6 +369,7 @@ impl Sim {
 
     pub fn count(&self) -> usize { self.count }
     pub fn max_units(&self) -> usize { self.max_units }
+    pub fn height_mult(&self) -> f32 { self.height_mult }
 
     pub fn apc_x(&self) -> f32 { self.apc_x }
     pub fn apc_y(&self) -> f32 { self.apc_y }
