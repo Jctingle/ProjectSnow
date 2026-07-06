@@ -4,6 +4,7 @@ import { getSim } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
+import { GROUND_SIZE } from './sim/config';
 import { initSim, tick } from './sim/tick';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { createTerrainMesh } from './world/terrain';
@@ -12,13 +13,14 @@ import { spawnInitialUnits } from './world/units';
 const scene    = new THREE.Scene();
 const aspect   = window.innerWidth / window.innerHeight;
 const viewSize = 10;
+const depthRange = GROUND_SIZE * 4;
 const camera   = new THREE.OrthographicCamera(
   (-viewSize * aspect) / 2,
   (viewSize * aspect) / 2,
    viewSize / 2,
   -viewSize / 2,
-  0.1,
-  1000
+  -depthRange,
+  depthRange
 );
 camera.position.set(10, 10, 10);
 camera.lookAt(0, 0, 0);
@@ -85,10 +87,11 @@ animate();
 
 window.addEventListener('resize', () => {
   const aspect = window.innerWidth / window.innerHeight;
-  camera.left   = (-viewSize * aspect) / 2;
-  camera.right  = ( viewSize * aspect) / 2;
-  camera.top    =   viewSize / 2;
-  camera.bottom =  -viewSize / 2;
+  const currentViewSize = camera.top - camera.bottom;
+  camera.left   = (-currentViewSize * aspect) / 2;
+  camera.right  = ( currentViewSize * aspect) / 2;
+  camera.top    =   currentViewSize / 2;
+  camera.bottom =  -currentViewSize / 2;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });

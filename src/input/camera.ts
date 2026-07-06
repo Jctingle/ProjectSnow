@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { GROUND_SIZE } from '../sim/config';
 
 const MIN_VIEW_SIZE = 5;
-const MAX_VIEW_SIZE = 20;
+const MAX_VIEW_SIZE = GROUND_SIZE * 1.25;
 const ZOOM_SENSITIVITY = 0.001;
 
 function clamp(value: number, min: number, max: number): number {

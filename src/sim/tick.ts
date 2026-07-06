@@ -1,5 +1,5 @@
 import { initStore, getSim } from '../entityStore';
-import { GROUND_SIZE } from './config';
+import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './config';
 
 let ready = false;
 
@@ -7,7 +7,12 @@ export async function initSim(): Promise<void> {
   await initStore();
   // Cache the heightmap once using a dense grid over the same world span.
   // This keeps unit ground-following close to the exact simplex terrain.
-  getSim().generate_heightmap(256, 256, GROUND_SIZE, GROUND_SIZE);
+  getSim().generate_heightmap(
+    HEIGHTMAP_GRID_SIZE,
+    HEIGHTMAP_GRID_SIZE,
+    GROUND_SIZE,
+    GROUND_SIZE
+  );
   ready = true;
 }
 
