@@ -17,7 +17,6 @@ const DECAY_MAX: f32 = 1.2;
 const EXPECTED_TIER: f32 = (TIER_MIN + TIER_MAX) / 2.0;
 const MAX_INFLUENCE_RADIUS: f32 = (TIER_MAX - EXPECTED_TIER) / DECAY_MIN;
 const SEA_LEVEL: f32 = -3.0;
-const TIER_HEIGHT_SCALE: f32 = 0.6;
 const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
 const INTERIOR_NOISE_AMP: f32 = 0.2;
 const STRUCTURE_MARGIN: f32 = 1.0;
@@ -34,6 +33,7 @@ pub struct Terrain {
     crag_freq: f64,
     sweep_scale: f64,
     sweep_amp: f32,
+    tier_height_scale: f32,
     seeds: Vec<TerrainSeed>,
     zone_threshold: f32,
     heightmap: Vec<f32>,
@@ -56,6 +56,7 @@ impl Terrain {
         crag_freq: f64,
         sweep_scale: f64,
         sweep_amp: f32,
+        tier_height_scale: f32,
     ) -> Self {
         Self {
             simplex: Simplex::new(noise_seed),
@@ -69,6 +70,7 @@ impl Terrain {
             crag_freq,
             sweep_scale,
             sweep_amp,
+            tier_height_scale,
             seeds: Vec::new(),
             zone_threshold: 0.0,
             heightmap: Vec::new(),
@@ -162,7 +164,7 @@ impl Terrain {
                 (x + self.seed_x) * self.sweep_scale,
                 (z + self.seed_y) * self.sweep_scale,
             ]) as f32;
-        let raw = normalized_tier * TIER_HEIGHT_SCALE
+        let raw = normalized_tier * self.tier_height_scale
             + noise * Self::noise_amplitude(margin)
             + sweep * self.sweep_amp;
         raw.max(SEA_LEVEL)

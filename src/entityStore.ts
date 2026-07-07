@@ -11,6 +11,7 @@ import {
   SHARD_HALF,
   SWEEP_AMP,
   SWEEP_SCALE,
+  TIER_HEIGHT_SCALE,
 } from './sim/config';
 
 export const MAX_UNITS = 5000;
@@ -45,6 +46,7 @@ export async function initStore(): Promise<void> {
     CRAG_FREQ,
     SWEEP_SCALE,
     SWEEP_AMP,
+    TIER_HEIGHT_SCALE,
     (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
 }

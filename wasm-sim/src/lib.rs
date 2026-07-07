@@ -34,6 +34,7 @@ impl Sim {
         crag_freq: f64,
         sweep_scale: f64,
         sweep_amp: f32,
+        tier_height_scale: f32,
         rng_seed: u32,
     ) -> Sim {
         let mut terrain = Terrain::new(
@@ -46,6 +47,7 @@ impl Sim {
             crag_freq,
             sweep_scale,
             sweep_amp,
+            tier_height_scale,
         );
         let mut terrain_rng = Rng::new(noise_seed);
         terrain.generate_variance(&mut terrain_rng, terrain_half_extent);
