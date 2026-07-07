@@ -30,9 +30,19 @@ impl Sim {
         height_mult: f32,
         shard_half: f32,
         terrain_half_extent: f32,
+        crag_strength: f32,
+        crag_freq: f64,
         rng_seed: u32,
     ) -> Sim {
-        let mut terrain = Terrain::new(noise_seed, seed_x, seed_y, scale, height_mult);
+        let mut terrain = Terrain::new(
+            noise_seed,
+            seed_x,
+            seed_y,
+            scale,
+            height_mult,
+            crag_strength,
+            crag_freq,
+        );
         let mut terrain_rng = Rng::new(noise_seed);
         terrain.generate_variance(&mut terrain_rng, terrain_half_extent);
 

@@ -14,6 +14,9 @@ const TIER_MIN: f32 = 0.0;
 const TIER_MAX: f32 = 9.0;
 const DECAY_MIN: f32 = 0.15;
 const DECAY_MAX: f32 = 1.2;
+const EXPECTED_TIER: f32 = (TIER_MIN + TIER_MAX) / 2.0;
+const MAX_INFLUENCE_RADIUS: f32 = (TIER_MAX - EXPECTED_TIER) / DECAY_MIN;
+const SEA_LEVEL: f32 = -3.0;
 const TIER_HEIGHT_SCALE: f32 = 0.6;
 const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
 const INTERIOR_NOISE_AMP: f32 = 0.2;
@@ -21,10 +24,13 @@ const STRUCTURE_MARGIN: f32 = 1.0;
 
 pub struct Terrain {
     simplex: Simplex,
+    crag_noise: Simplex,
     seed_x: f64,
     seed_y: f64,
     scale: f64,
     height_mult: f32,
+    crag_strength: f32,
+    crag_freq: f64,
     seeds: Vec<TerrainSeed>,
     zone_threshold: f32,
     heightmap: Vec<f32>,
@@ -37,13 +43,24 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    pub fn new(noise_seed: u32, seed_x: f64, seed_y: f64, scale: f64, height_mult: f32) -> Self {
+    pub fn new(
+        noise_seed: u32,
+        seed_x: f64,
+        seed_y: f64,
+        scale: f64,
+        height_mult: f32,
+        crag_strength: f32,
+        crag_freq: f64,
+    ) -> Self {
         Self {
             simplex: Simplex::new(noise_seed),
+            crag_noise: Simplex::new(noise_seed.wrapping_add(1)),
             seed_x,
             seed_y,
             scale,
             height_mult,
+            crag_strength,
+            crag_freq,
             seeds: Vec::new(),
             zone_threshold: 0.0,
             heightmap: Vec::new(),
@@ -74,17 +91,18 @@ impl Terrain {
     }
 
     fn tier_value(&self, x: f32, z: f32) -> (f32, f32) {
-        if self.seeds.is_empty() {
-            return (0.0, f32::INFINITY);
-        }
-
         let mut top1 = f32::NEG_INFINITY;
         let mut top2 = f32::NEG_INFINITY;
 
         for seed in &self.seeds {
             let dx = x - seed.x;
             let dz = z - seed.z;
-            let dist = (dx * dx + dz * dz).sqrt();
+            let base_dist = (dx * dx + dz * dz).sqrt();
+            let crag = self.crag_distortion(seed, dx, dz);
+            let dist = (base_dist * (1.0 + crag * self.crag_strength)).max(0.0);
+            if dist > MAX_INFLUENCE_RADIUS {
+                continue;
+            }
             let value = seed.base_value - seed.decay_rate * dist;
             if value > top1 {
                 top2 = top1;
@@ -92,6 +110,10 @@ impl Terrain {
             } else if value > top2 {
                 top2 = value;
             }
+        }
+
+        if top1 == f32::NEG_INFINITY {
+            return (EXPECTED_TIER, f32::INFINITY);
         }
 
         (top1, top1 - top2)
@@ -102,13 +124,22 @@ impl Terrain {
         INTERIOR_NOISE_AMP + (1.0 - INTERIOR_NOISE_AMP) * (1.0 - t)
     }
 
+    fn crag_distortion(&self, seed: &TerrainSeed, dx: f32, dz: f32) -> f32 {
+        let angle = (dz as f64).atan2(dx as f64);
+        let nx = seed.x as f64 * 0.01 + angle.cos() * self.crag_freq;
+        let nz = seed.z as f64 * 0.01 + angle.sin() * self.crag_freq;
+        self.crag_noise.get([nx, nz]) as f32
+    }
+
     pub fn sample_height(&self, x: f64, z: f64) -> f32 {
         let (tier, margin) = self.tier_value(x as f32, z as f32);
+        let normalized_tier = tier - EXPECTED_TIER;
         let noise = self
             .simplex
             .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale])
             as f32;
-        tier * TIER_HEIGHT_SCALE + noise * Self::noise_amplitude(margin)
+        let raw = normalized_tier * TIER_HEIGHT_SCALE + noise * Self::noise_amplitude(margin);
+        raw.max(SEA_LEVEL)
     }
 
     pub fn zone_at(&self, x: f32, z: f32) -> u8 {

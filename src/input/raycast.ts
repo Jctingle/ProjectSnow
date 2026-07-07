@@ -20,30 +20,59 @@ export function getGroundClickPoint(
 
   const origin = raycaster.ray.origin;
   const dir = raycaster.ray.direction;
-
-  // Orthographic rays are just parameterized lines through the scene for
-  // a top-down click - there's no meaningful "behind the camera" here, so
-  // solve the line/plane intersection ourselves instead of using
-  // Ray.intersectPlane, which hard-rejects any negative t. That rejection
-  // is what caused clicks to silently fail once zoomed out far enough.
   if (Math.abs(dir.y) < 1e-8) return null;
 
   const sim = getSim();
 
-  // Approximate at y = 0 first...
-  let t = -origin.y / dir.y;
-  let x = origin.x + dir.x * t;
-  let z = origin.z + dir.z * t;
+  const heightAt = (t: number) => {
+    const x = origin.x + dir.x * t;
+    const z = origin.z + dir.z * t;
+    return sim.sample_height(x, z) * sim.height_mult();
+  };
 
-  // ...then refine against the real terrain height a couple of times to
-  // remove the parallax offset on sloped ground.
-  for (let i = 0; i < 2; i++) {
-    const h = sim.sample_height(x, z) * sim.height_mult();
-    t = (h - origin.y) / dir.y;
-    x = origin.x + dir.x * t;
-    z = origin.z + dir.z * t;
+  const f = (t: number) => (origin.y + dir.y * t) - heightAt(t);
+
+  const HIGH = 40;
+  const LOW = -40;
+  let t0 = (HIGH - origin.y) / dir.y;
+  let t1 = (LOW - origin.y) / dir.y;
+  if (t0 > t1) [t0, t1] = [t1, t0];
+
+  const STEPS = 40;
+  const dt = (t1 - t0) / STEPS;
+  let prevT = t0;
+  let prevF = f(t0);
+  let a: number | null = null;
+  let b: number | null = null;
+
+  for (let i = 1; i <= STEPS; i++) {
+    const t = t0 + dt * i;
+    const value = f(t);
+    if ((prevF < 0 && value > 0) || (prevF > 0 && value < 0)) {
+      a = prevT;
+      b = t;
+      break;
+    }
+    prevT = t;
+    prevF = value;
   }
 
-  const finalHeight = sim.sample_height(x, z) * sim.height_mult();
-  return new THREE.Vector3(x, finalHeight, z);
+  if (a === null || b === null) return null;
+
+  let fa = f(a);
+  for (let i = 0; i < 20; i++) {
+    const mid = (a + b) / 2;
+    const fm = f(mid);
+    if (Math.sign(fm) === Math.sign(fa)) {
+      a = mid;
+      fa = fm;
+    } else {
+      b = mid;
+    }
+  }
+
+  const tFinal = (a + b) / 2;
+  const x = origin.x + dir.x * tFinal;
+  const z = origin.z + dir.z * tFinal;
+  return new THREE.Vector3(x, heightAt(tFinal), z);
 }

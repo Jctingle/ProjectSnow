@@ -1,5 +1,7 @@
 import init, { Sim } from 'wasm-sim';
 import {
+  CRAG_FREQ,
+  CRAG_STRENGTH,
   HEIGHT_MULT,
   GROUND_SIZE,
   NOISE_SEED,
@@ -37,6 +39,8 @@ export async function initStore(): Promise<void> {
     HEIGHT_MULT,
     SHARD_HALF,
     GROUND_SIZE / 2,
+    CRAG_STRENGTH,
+    CRAG_FREQ,
     (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
 }
