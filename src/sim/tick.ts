@@ -21,14 +21,18 @@ export function tick(delta: number): void {
   getSim().tick(delta);
 }
 
-export function regenerateTerrain(): number {
-  const seed = Math.floor(100_000_000 + Math.random() * 900_000_000);
-  getSim().regenerate_terrain(seed);
+export function refreshHeightmap(): void {
   getSim().generate_heightmap(
     HEIGHTMAP_GRID_SIZE,
     HEIGHTMAP_GRID_SIZE,
     GROUND_SIZE,
     GROUND_SIZE
   );
-  return seed;
+}
+
+export function regenerateTerrain(seed?: number): number {
+  const finalSeed = seed ?? Math.floor(100_000_000 + Math.random() * 900_000_000);
+  getSim().regenerate_terrain(finalSeed);
+  refreshHeightmap();
+  return finalSeed;
 }

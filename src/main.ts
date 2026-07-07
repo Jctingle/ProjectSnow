@@ -5,7 +5,8 @@ import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE } from './sim/config';
-import { initSim, tick, regenerateTerrain } from './sim/tick';
+import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
+import { createDevPanel } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { createTerrainMesh } from './world/terrain';
 import { spawnInitialUnits } from './world/units';
@@ -49,6 +50,13 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 let ground = createTerrainMesh(sim);
 scene.add(ground);
 
+function rebuildGroundMesh(): void {
+  scene.remove(ground);
+  ground.geometry.dispose();
+  ground = createTerrainMesh(sim);
+  scene.add(ground);
+}
+
 const updateInputRouter = initInputRouter(camera, renderer, scene);
 
 // APC
@@ -75,11 +83,12 @@ regenButton.addEventListener('click', () => {
   const seed = regenerateTerrain();
   seedLabel.textContent = `seed: ${seed}`;
   console.log('[terrain] regenerated with seed', seed);
+  rebuildGroundMesh();
+});
 
-  scene.remove(ground);
-  ground.geometry.dispose();
-  ground = createTerrainMesh(sim);
-  scene.add(ground);
+createDevPanel(sim, () => {
+  refreshHeightmap();
+  rebuildGroundMesh();
 });
 
 // sim loop

@@ -44,7 +44,8 @@ export const SWEEP_AMP = 2.7;
 // ridges from the seed-cone system). This is now the dominant driver of
 // overall terrain height - higher values produce taller peaks and
 // deeper valleys; lower values flatten the whole shard toward sea level.
-export const TIER_HEIGHT_SCALE = 1.3;
+//optimal value : .268
+export const TIER_HEIGHT_SCALE = 0.268;
 
 // Half-width of the simulation shard used for gameplay bounds around origin.
 // Larger values allow agents/systems to roam farther; smaller values constrain

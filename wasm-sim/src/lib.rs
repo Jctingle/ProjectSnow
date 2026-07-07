@@ -79,6 +79,30 @@ impl Sim {
         self.terrain.regenerate(noise_seed);
     }
 
+    pub fn set_height_mult(&mut self, v: f32) {
+        self.terrain.set_height_mult(v);
+    }
+
+    pub fn set_crag_strength(&mut self, v: f32) {
+        self.terrain.set_crag_strength(v);
+    }
+
+    pub fn set_crag_freq(&mut self, v: f64) {
+        self.terrain.set_crag_freq(v);
+    }
+
+    pub fn set_sweep_scale(&mut self, v: f64) {
+        self.terrain.set_sweep_scale(v);
+    }
+
+    pub fn set_sweep_amp(&mut self, v: f32) {
+        self.terrain.set_sweep_amp(v);
+    }
+
+    pub fn set_tier_height_scale(&mut self, v: f32) {
+        self.terrain.set_tier_height_scale(v);
+    }
+
     pub fn spawn_unit(&mut self, x: f32, z: f32) -> i32 {
         self.units.spawn_unit(x, z, &self.terrain)
     }

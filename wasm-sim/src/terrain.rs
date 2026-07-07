@@ -110,6 +110,30 @@ impl Terrain {
         self.generate_variance(&mut rng, half_extent);
     }
 
+    pub fn set_height_mult(&mut self, v: f32) {
+        self.height_mult = v;
+    }
+
+    pub fn set_crag_strength(&mut self, v: f32) {
+        self.crag_strength = v;
+    }
+
+    pub fn set_crag_freq(&mut self, v: f64) {
+        self.crag_freq = v;
+    }
+
+    pub fn set_sweep_scale(&mut self, v: f64) {
+        self.sweep_scale = v;
+    }
+
+    pub fn set_sweep_amp(&mut self, v: f32) {
+        self.sweep_amp = v;
+    }
+
+    pub fn set_tier_height_scale(&mut self, v: f32) {
+        self.tier_height_scale = v;
+    }
+
     fn tier_value(&self, x: f32, z: f32) -> (f32, f32) {
         let mut top1 = f32::NEG_INFINITY;
         let mut top2 = f32::NEG_INFINITY;
