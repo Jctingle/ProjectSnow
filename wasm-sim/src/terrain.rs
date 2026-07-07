@@ -1,4 +1,23 @@
+use crate::rng::Rng;
 use noise::{NoiseFn, Simplex};
+
+struct TerrainSeed {
+    x: f32,
+    z: f32,
+    base_value: f32,
+    decay_rate: f32,
+}
+
+const MIN_SEEDS: usize = 3;
+const MAX_SEEDS: usize = 8;
+const TIER_MIN: f32 = 0.0;
+const TIER_MAX: f32 = 9.0;
+const DECAY_MIN: f32 = 0.15;
+const DECAY_MAX: f32 = 1.2;
+const TIER_HEIGHT_SCALE: f32 = 0.6;
+const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
+const INTERIOR_NOISE_AMP: f32 = 0.2;
+const STRUCTURE_MARGIN: f32 = 1.0;
 
 pub struct Terrain {
     simplex: Simplex,
@@ -6,6 +25,8 @@ pub struct Terrain {
     seed_y: f64,
     scale: f64,
     height_mult: f32,
+    seeds: Vec<TerrainSeed>,
+    zone_threshold: f32,
     heightmap: Vec<f32>,
     hm_width: usize,
     hm_height: usize,
@@ -23,6 +44,8 @@ impl Terrain {
             seed_y,
             scale,
             height_mult,
+            seeds: Vec::new(),
+            zone_threshold: 0.0,
             heightmap: Vec::new(),
             hm_width: 0,
             hm_height: 0,
@@ -33,9 +56,78 @@ impl Terrain {
         }
     }
 
+    pub fn generate_variance(&mut self, rng: &mut Rng, half_extent: f32) {
+        let seed_count = MIN_SEEDS
+            + (rng.next_unsigned() * (MAX_SEEDS - MIN_SEEDS + 1) as f32) as usize;
+        let seed_count = seed_count.min(MAX_SEEDS);
+
+        self.seeds = (0..seed_count)
+            .map(|_| TerrainSeed {
+                x: rng.next_signed() * half_extent,
+                z: rng.next_signed() * half_extent,
+                base_value: TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN),
+                decay_rate: DECAY_MIN + rng.next_unsigned() * (DECAY_MAX - DECAY_MIN),
+            })
+            .collect();
+
+        self.zone_threshold = TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN);
+    }
+
+    fn tier_value(&self, x: f32, z: f32) -> (f32, f32) {
+        if self.seeds.is_empty() {
+            return (0.0, f32::INFINITY);
+        }
+
+        let mut top1 = f32::NEG_INFINITY;
+        let mut top2 = f32::NEG_INFINITY;
+
+        for seed in &self.seeds {
+            let dx = x - seed.x;
+            let dz = z - seed.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let value = seed.base_value - seed.decay_rate * dist;
+            if value > top1 {
+                top2 = top1;
+                top1 = value;
+            } else if value > top2 {
+                top2 = value;
+            }
+        }
+
+        (top1, top1 - top2)
+    }
+
+    fn noise_amplitude(margin: f32) -> f32 {
+        let t = (margin / BOUNDARY_INFLUENCE_RADIUS).clamp(0.0, 1.0);
+        INTERIOR_NOISE_AMP + (1.0 - INTERIOR_NOISE_AMP) * (1.0 - t)
+    }
+
     pub fn sample_height(&self, x: f64, z: f64) -> f32 {
-        self.simplex
-            .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale]) as f32
+        let (tier, margin) = self.tier_value(x as f32, z as f32);
+        let noise = self
+            .simplex
+            .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale])
+            as f32;
+        tier * TIER_HEIGHT_SCALE + noise * Self::noise_amplitude(margin)
+    }
+
+    pub fn zone_at(&self, x: f32, z: f32) -> u8 {
+        let (tier, _) = self.tier_value(x, z);
+        if tier < self.zone_threshold { 0 } else { 1 }
+    }
+
+    pub fn is_structure_viable(&self, x: f32, z: f32) -> bool {
+        self.tier_value(x, z).1 > STRUCTURE_MARGIN
+    }
+
+    pub fn steepness_at(&self, x: f32, z: f32) -> f32 {
+        const EPS: f32 = 0.5;
+        let h0 = self.sample_height(x as f64, z as f64);
+        let hx = self.sample_height((x + EPS) as f64, z as f64);
+        let hz = self.sample_height(x as f64, (z + EPS) as f64);
+        let dhx = (hx - h0) * self.height_mult;
+        let dhz = (hz - h0) * self.height_mult;
+        (dhx * dhx + dhz * dhz).sqrt() / EPS
     }
 
     pub fn generate_heightmap(&mut self, grid_w: usize, grid_h: usize, world_w: f32, world_h: f32) {
@@ -80,10 +172,7 @@ impl Terrain {
                     0.5
                 };
                 let wx = (vx - 0.5) * world_w;
-                self.heightmap[row * grid_w + col] = self.simplex.get([
-                    (wx as f64 + self.seed_x) * self.scale,
-                    (wz as f64 + self.seed_y) * self.scale,
-                ]) as f32;
+                self.heightmap[row * grid_w + col] = self.sample_height(wx as f64, wz as f64);
             }
         }
     }

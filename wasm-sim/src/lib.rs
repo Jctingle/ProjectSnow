@@ -29,10 +29,15 @@ impl Sim {
         scale: f64,
         height_mult: f32,
         shard_half: f32,
+        terrain_half_extent: f32,
         rng_seed: u32,
     ) -> Sim {
+        let mut terrain = Terrain::new(noise_seed, seed_x, seed_y, scale, height_mult);
+        let mut terrain_rng = Rng::new(noise_seed);
+        terrain.generate_variance(&mut terrain_rng, terrain_half_extent);
+
         Sim {
-            terrain: Terrain::new(noise_seed, seed_x, seed_y, scale, height_mult),
+            terrain,
             units: Units::new(max_units, shard_half),
             apc: Apc::new(),
             rng: Rng::new(rng_seed),
@@ -86,6 +91,18 @@ impl Sim {
 
     pub fn height_mult(&self) -> f32 {
         self.terrain.height_mult()
+    }
+
+    pub fn zone_at(&self, x: f32, z: f32) -> u8 {
+        self.terrain.zone_at(x, z)
+    }
+
+    pub fn steepness_at(&self, x: f32, z: f32) -> f32 {
+        self.terrain.steepness_at(x, z)
+    }
+
+    pub fn is_structure_viable(&self, x: f32, z: f32) -> bool {
+        self.terrain.is_structure_viable(x, z)
     }
 
     pub fn apc_x(&self) -> f32 {

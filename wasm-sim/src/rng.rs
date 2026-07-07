@@ -16,4 +16,9 @@ impl Rng {
         self.state = s;
         (s as f32 / u32::MAX as f32) * 2.0 - 1.0
     }
+
+    #[inline]
+    pub fn next_unsigned(&mut self) -> f32 {
+        (self.next_signed() + 1.0) * 0.5
+    }
 }
