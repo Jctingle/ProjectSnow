@@ -49,7 +49,7 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 const ground = createTerrainMesh(sim);
 scene.add(ground);
 
-const updateInputRouter = initInputRouter(camera, renderer, ground, scene);
+const updateInputRouter = initInputRouter(camera, renderer, scene);
 
 // APC
 const apcMesh = createApcMesh();

@@ -5,6 +5,7 @@ const geometry = new THREE.BoxGeometry(0.075, 0.075, 0.075);
 const material = new THREE.MeshStandardMaterial({ color: 0x66ccff });
 
 export const instancedUnits = new THREE.InstancedMesh(geometry, material, MAX_UNITS);
+instancedUnits.frustumCulled = false;
 instancedUnits.count = 0;
 
 export function syncInstancedMesh(): void {

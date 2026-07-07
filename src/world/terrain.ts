@@ -23,6 +23,7 @@ export function createTerrainMesh(sim: Sim): THREE.Mesh {
   }
   posAttr.needsUpdate = true;
   geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
 
   return ground;
 }

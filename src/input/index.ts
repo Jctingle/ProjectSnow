@@ -10,13 +10,12 @@ export type { GameMode } from './gameMode';
 export function initInputRouter(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
-  ground: THREE.Mesh,
   scene: THREE.Scene,
 ): () => void {
   const destinationMarker = createDestinationMarkerController(scene);
 
-  attachClickSelect(camera, renderer, ground);
-  attachApcMoveCommand(camera, renderer, ground, destinationMarker);
+  attachClickSelect(camera, renderer);
+  attachApcMoveCommand(camera, renderer, destinationMarker);
   attachKeyboardShortcuts();
 
   return () => {

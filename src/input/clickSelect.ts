@@ -1,10 +1,9 @@
 import * as THREE from 'three';
-import { getRaycastPoint } from './raycast';
+import { getGroundClickPoint } from './raycast';
 
 export function attachClickSelect(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
-  ground: THREE.Mesh,
 ): void {
   const canvas = renderer.domElement;
 
@@ -13,7 +12,7 @@ export function attachClickSelect(
       return;
     }
 
-    const worldPoint = getRaycastPoint(event, camera, renderer, ground);
+    const worldPoint = getGroundClickPoint(event, camera, renderer);
     if (!worldPoint) {
       return;
     }

@@ -105,7 +105,7 @@ impl Terrain {
             return self.sample_height(x as f64, z as f64);
         }
 
-        self.sample_bilinear(gx, gz)
+        self.sample_triangle(gx, gz)
     }
 
     #[inline]
@@ -119,7 +119,7 @@ impl Terrain {
         let cx = gx.clamp(0.0, (self.hm_width - 1) as f32);
         let cz = gz.clamp(0.0, (self.hm_height - 1) as f32);
 
-        self.sample_bilinear(cx, cz)
+        self.sample_triangle(cx, cz)
     }
 
     pub fn height_mult(&self) -> f32 {
@@ -131,7 +131,7 @@ impl Terrain {
     }
 
     #[inline]
-    fn sample_bilinear(&self, gx: f32, gz: f32) -> f32 {
+    fn sample_triangle(&self, gx: f32, gz: f32) -> f32 {
         let x0 = gx as usize;
         let z0 = gz as usize;
         let x1 = (x0 + 1).min(self.hm_width - 1);
@@ -145,8 +145,12 @@ impl Terrain {
         let h01 = self.heightmap[z1 * w + x0];
         let h11 = self.heightmap[z1 * w + x1];
 
-        let top = h00 + (h10 - h00) * fx;
-        let bot = h01 + (h11 - h01) * fx;
-        top + (bot - top) * fz
+        // Match Three.js PlaneGeometry quad triangulation so sampled unit heights
+        // lie on the same flat triangles that the terrain mesh renders.
+        if fx + fz <= 1.0 {
+            h00 + (h10 - h00) * fx + (h01 - h00) * fz
+        } else {
+            h11 + (h01 - h11) * (1.0 - fx) + (h10 - h11) * (1.0 - fz)
+        }
     }
 }

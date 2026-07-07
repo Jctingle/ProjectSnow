@@ -1,13 +1,12 @@
 import * as THREE from 'three';
 import { getSim } from '../entityStore';
 import { gameMode } from './gameMode';
-import { getRaycastPoint } from './raycast';
+import { getGroundClickPoint } from './raycast';
 import type { DestinationMarkerController } from './destinationMarker';
 
 export function attachApcMoveCommand(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
-  ground: THREE.Mesh,
   destinationMarker: DestinationMarkerController,
 ): void {
   const canvas = renderer.domElement;
@@ -19,7 +18,7 @@ export function attachApcMoveCommand(
       return;
     }
 
-    const worldPoint = getRaycastPoint(event, camera, renderer, ground);
+    const worldPoint = getGroundClickPoint(event, camera, renderer);
     if (!worldPoint) {
       return;
     }

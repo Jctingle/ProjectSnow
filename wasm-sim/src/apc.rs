@@ -1,7 +1,7 @@
 use crate::terrain::Terrain;
 use crate::units::UNIT_SPEED;
 
-const APC_SPEED: f32 = UNIT_SPEED / 3.0;
+const APC_SPEED: f32 = UNIT_SPEED / 2.0;
 const APC_TOUCH_RADIUS: f32 = 0.3;
 const APC_TOUCH_RADIUS_SQ: f32 = APC_TOUCH_RADIUS * APC_TOUCH_RADIUS;
 
