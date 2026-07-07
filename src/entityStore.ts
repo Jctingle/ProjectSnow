@@ -9,6 +9,8 @@ import {
   SEED_X,
   SEED_Y,
   SHARD_HALF,
+  SWEEP_AMP,
+  SWEEP_SCALE,
 } from './sim/config';
 
 export const MAX_UNITS = 5000;
@@ -41,6 +43,8 @@ export async function initStore(): Promise<void> {
     GROUND_SIZE / 2,
     CRAG_STRENGTH,
     CRAG_FREQ,
+    SWEEP_SCALE,
+    SWEEP_AMP,
     (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
 }

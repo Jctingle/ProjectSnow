@@ -5,7 +5,7 @@ import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE } from './sim/config';
-import { initSim, tick } from './sim/tick';
+import { initSim, tick, regenerateTerrain } from './sim/tick';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { createTerrainMesh } from './world/terrain';
 import { spawnInitialUnits } from './world/units';
@@ -46,7 +46,7 @@ initCameraControls(camera, renderer.domElement);
 sim.set_apc_target(sim.apc_x(), sim.apc_z());
 
 // terrain
-const ground = createTerrainMesh(sim);
+let ground = createTerrainMesh(sim);
 scene.add(ground);
 
 const updateInputRouter = initInputRouter(camera, renderer, scene);
@@ -58,6 +58,29 @@ scene.add(apcMesh);
 // units
 scene.add(instancedUnits);
 spawnInitialUnits();
+
+const regenButton = document.createElement('button');
+regenButton.textContent = 'Regenerate Terrain';
+regenButton.style.cssText =
+  'position:fixed; top:12px; right:12px; z-index:10; padding:8px 12px; font-family:sans-serif; font-size:13px; cursor:pointer;';
+document.body.appendChild(regenButton);
+
+const seedLabel = document.createElement('div');
+seedLabel.style.cssText =
+  'position:fixed; top:48px; right:12px; z-index:10; padding:4px 8px; font-family:monospace; font-size:12px; color:#fff; background:rgba(0,0,0,0.5); border-radius:4px;';
+seedLabel.textContent = 'seed: (default)';
+document.body.appendChild(seedLabel);
+
+regenButton.addEventListener('click', () => {
+  const seed = regenerateTerrain();
+  seedLabel.textContent = `seed: ${seed}`;
+  console.log('[terrain] regenerated with seed', seed);
+
+  scene.remove(ground);
+  ground.geometry.dispose();
+  ground = createTerrainMesh(sim);
+  scene.add(ground);
+});
 
 // sim loop
 const SIM_RATE = 1 / 60;

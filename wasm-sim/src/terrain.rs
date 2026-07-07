@@ -25,12 +25,15 @@ const STRUCTURE_MARGIN: f32 = 1.0;
 pub struct Terrain {
     simplex: Simplex,
     crag_noise: Simplex,
+    sweep_noise: Simplex,
     seed_x: f64,
     seed_y: f64,
     scale: f64,
     height_mult: f32,
     crag_strength: f32,
     crag_freq: f64,
+    sweep_scale: f64,
+    sweep_amp: f32,
     seeds: Vec<TerrainSeed>,
     zone_threshold: f32,
     heightmap: Vec<f32>,
@@ -51,16 +54,21 @@ impl Terrain {
         height_mult: f32,
         crag_strength: f32,
         crag_freq: f64,
+        sweep_scale: f64,
+        sweep_amp: f32,
     ) -> Self {
         Self {
             simplex: Simplex::new(noise_seed),
             crag_noise: Simplex::new(noise_seed.wrapping_add(1)),
+            sweep_noise: Simplex::new(noise_seed.wrapping_add(2)),
             seed_x,
             seed_y,
             scale,
             height_mult,
             crag_strength,
             crag_freq,
+            sweep_scale,
+            sweep_amp,
             seeds: Vec::new(),
             zone_threshold: 0.0,
             heightmap: Vec::new(),
@@ -88,6 +96,16 @@ impl Terrain {
             .collect();
 
         self.zone_threshold = TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN);
+    }
+
+    pub fn regenerate(&mut self, noise_seed: u32) {
+        self.simplex = Simplex::new(noise_seed);
+        self.crag_noise = Simplex::new(noise_seed.wrapping_add(1));
+        self.sweep_noise = Simplex::new(noise_seed.wrapping_add(2));
+
+        let half_extent = self.hm_half_w;
+        let mut rng = Rng::new(noise_seed);
+        self.generate_variance(&mut rng, half_extent);
     }
 
     fn tier_value(&self, x: f32, z: f32) -> (f32, f32) {
@@ -138,7 +156,15 @@ impl Terrain {
             .simplex
             .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale])
             as f32;
-        let raw = normalized_tier * TIER_HEIGHT_SCALE + noise * Self::noise_amplitude(margin);
+        let sweep = self
+            .sweep_noise
+            .get([
+                (x + self.seed_x) * self.sweep_scale,
+                (z + self.seed_y) * self.sweep_scale,
+            ]) as f32;
+        let raw = normalized_tier * TIER_HEIGHT_SCALE
+            + noise * Self::noise_amplitude(margin)
+            + sweep * self.sweep_amp;
         raw.max(SEA_LEVEL)
     }
 

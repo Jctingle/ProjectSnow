@@ -1,6 +1,6 @@
 // Seed for the terrain noise field.
 // Change this to generate a different (but still deterministic) terrain layout.
-export const NOISE_SEED = 4207620;
+export const NOISE_SEED = 694206721;
 
 // World-space X offset applied to noise sampling.
 // Increasing/decreasing shifts the entire terrain pattern horizontally without
@@ -19,15 +19,26 @@ export const SCALE = 0.08;
 
 // Vertical amplification applied to sampled terrain height.
 // Higher values make hills and valleys taller/deeper; lower values flatten terrain.
-export const HEIGHT_MULT = 1.5;
+export const HEIGHT_MULT = 1.3;
 
 // Warps each seed's influence boundary into irregular crag shapes.
 // Higher values produce rougher, more jagged silhouettes; lower values stay rounder.
-export const CRAG_STRENGTH = .6;
+export const CRAG_STRENGTH = .35;
 
 // Number of angular lobes sampled around each seed's boundary distortion.
 // Lower values yield broad bulges; higher values create tighter crags.
 export const CRAG_FREQ = 2.0;
+
+// Frequency of the broad "sweep" undulation layered over all terrain,
+// including flat plateau tops (unlike SCALE's texture, this isn't
+// dampened near seed centers). Much lower than SCALE - should stay
+// noticeably broader/slower than the main terrain texture.
+export const SWEEP_SCALE = 0.045;
+
+// World-height amplitude of the sweep layer.
+// Higher values add more visible large-scale rolling variation on top
+// of otherwise-flat areas; lower values keep plateaus calmer.
+export const SWEEP_AMP = 3.2;
 
 // Half-width of the simulation shard used for gameplay bounds around origin.
 // Larger values allow agents/systems to roam farther; smaller values constrain

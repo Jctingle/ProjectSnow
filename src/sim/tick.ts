@@ -20,3 +20,15 @@ export function tick(delta: number): void {
   if (!ready) return;
   getSim().tick(delta);
 }
+
+export function regenerateTerrain(): number {
+  const seed = Math.floor(100_000_000 + Math.random() * 900_000_000);
+  getSim().regenerate_terrain(seed);
+  getSim().generate_heightmap(
+    HEIGHTMAP_GRID_SIZE,
+    HEIGHTMAP_GRID_SIZE,
+    GROUND_SIZE,
+    GROUND_SIZE
+  );
+  return seed;
+}

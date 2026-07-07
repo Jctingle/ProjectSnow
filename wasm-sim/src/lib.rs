@@ -32,6 +32,8 @@ impl Sim {
         terrain_half_extent: f32,
         crag_strength: f32,
         crag_freq: f64,
+        sweep_scale: f64,
+        sweep_amp: f32,
         rng_seed: u32,
     ) -> Sim {
         let mut terrain = Terrain::new(
@@ -42,6 +44,8 @@ impl Sim {
             height_mult,
             crag_strength,
             crag_freq,
+            sweep_scale,
+            sweep_amp,
         );
         let mut terrain_rng = Rng::new(noise_seed);
         terrain.generate_variance(&mut terrain_rng, terrain_half_extent);
@@ -67,6 +71,10 @@ impl Sim {
     ) {
         self.terrain
             .generate_heightmap(grid_w, grid_h, world_w, world_h);
+    }
+
+    pub fn regenerate_terrain(&mut self, noise_seed: u32) {
+        self.terrain.regenerate(noise_seed);
     }
 
     pub fn spawn_unit(&mut self, x: f32, z: f32) -> i32 {
