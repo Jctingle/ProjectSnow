@@ -13,6 +13,7 @@ export async function initSim(): Promise<void> {
     GROUND_SIZE,
     GROUND_SIZE
   );
+  getSim().generate_slopemap();
   ready = true;
 }
 
@@ -28,6 +29,7 @@ export function refreshHeightmap(): void {
     GROUND_SIZE,
     GROUND_SIZE
   );
+  getSim().generate_slopemap();
 }
 
 export function regenerateTerrain(seed?: number): number {

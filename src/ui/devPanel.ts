@@ -26,7 +26,11 @@ const FIELDS: FieldConfig[] = [
   { label: 'TIER_HEIGHT_SCALE', min: 0.1, max: 1.5, step: 0.01, default: TIER_HEIGHT_SCALE, set: (sim, v) => sim.set_tier_height_scale(v) },
 ];
 
-export function createDevPanel(sim: Sim, onChange: () => void): void {
+export function createDevPanel(
+  sim: Sim,
+  onChange: () => void,
+  onSlopeDebugToggle?: (checked: boolean) => void
+): void {
   const panel = document.createElement('div');
   panel.style.cssText =
     'position:fixed; top:90px; right:12px; z-index:10; display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:12px;';
@@ -40,6 +44,21 @@ export function createDevPanel(sim: Sim, onChange: () => void): void {
       onChange();
     });
   }
+
+  const slopeRow = document.createElement('div');
+  slopeRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const slopeCheckbox = document.createElement('input');
+  slopeCheckbox.type = 'checkbox';
+  const slopeLabel = document.createElement('label');
+  slopeLabel.textContent = 'Show slope debug';
+  slopeRow.appendChild(slopeCheckbox);
+  slopeRow.appendChild(slopeLabel);
+  panel.appendChild(slopeRow);
+
+  slopeCheckbox.addEventListener('change', () => {
+    onSlopeDebugToggle?.(slopeCheckbox.checked);
+  });
 
   for (const field of FIELDS) {
     const row = document.createElement('div');

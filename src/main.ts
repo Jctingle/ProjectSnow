@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import './style.css';
-import { getSim } from './entityStore';
+import { getSim, getSlopemap } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
-import { GROUND_SIZE } from './sim/config';
+import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
+import { applySlopeDebugColors, clearSlopeDebugColors } from './world/terrainDebug';
 import { createTerrainMesh } from './world/terrain';
 import { spawnInitialUnits } from './world/units';
 
@@ -49,12 +50,19 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 // terrain
 let ground = createTerrainMesh(sim);
 scene.add(ground);
+let slopeDebugOn = false;
 
 function rebuildGroundMesh(): void {
   scene.remove(ground);
   ground.geometry.dispose();
   ground = createTerrainMesh(sim);
   scene.add(ground);
+  if (slopeDebugOn) {
+    applySlopeDebugColors(
+      ground,
+      getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
+    );
+  }
 }
 
 const updateInputRouter = initInputRouter(camera, renderer, scene);
@@ -86,10 +94,24 @@ regenButton.addEventListener('click', () => {
   rebuildGroundMesh();
 });
 
-createDevPanel(sim, () => {
-  refreshHeightmap();
-  rebuildGroundMesh();
-});
+createDevPanel(
+  sim,
+  () => {
+    refreshHeightmap();
+    rebuildGroundMesh();
+  },
+  (checked) => {
+    slopeDebugOn = checked;
+    if (checked) {
+      applySlopeDebugColors(
+        ground,
+        getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
+      );
+    } else {
+      clearSlopeDebugColors(ground);
+    }
+  }
+);
 
 // sim loop
 const SIM_RATE = 1 / 60;

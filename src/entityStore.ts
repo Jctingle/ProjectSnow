@@ -88,6 +88,16 @@ export function getHeightmap(width: number, height: number): Float32Array {
   return new Float32Array(memory.buffer, getSim().heightmap_ptr(), width * height);
 }
 
+/**
+ * Zero-copy view over the cached slopemap (degrees). Call AFTER
+ * sim.generate_slopemap(), which itself must run after generate_heightmap().
+ * Debug-overlay use only - gameplay code should call slope_degrees_at()
+ * on the Sim directly, not read this grid.
+ */
+export function getSlopemap(width: number, height: number): Float32Array {
+  return new Float32Array(memory.buffer, getSim().slopemap_ptr(), width * height);
+}
+
 export function activeCount(): number {
   return sim ? sim.count() : 0;
 }

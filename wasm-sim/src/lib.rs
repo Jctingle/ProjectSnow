@@ -75,6 +75,10 @@ impl Sim {
             .generate_heightmap(grid_w, grid_h, world_w, world_h);
     }
 
+    pub fn generate_slopemap(&mut self) {
+        self.terrain.generate_slopemap();
+    }
+
     pub fn regenerate_terrain(&mut self, noise_seed: u32) {
         self.terrain.regenerate(noise_seed);
     }
@@ -123,6 +127,10 @@ impl Sim {
 
     pub fn heightmap_ptr(&self) -> *const f32 {
         self.terrain.heightmap_ptr()
+    }
+
+    pub fn slopemap_ptr(&self) -> *const f32 {
+        self.terrain.slopemap_ptr()
     }
 
     pub fn count(&self) -> usize {

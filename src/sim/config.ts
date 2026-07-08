@@ -19,33 +19,33 @@ export const SCALE = 0.09;
 
 // Vertical amplification applied to sampled terrain height.
 // Higher values make hills and valleys taller/deeper; lower values flatten terrain.
-export const HEIGHT_MULT = 1.7;
+export const HEIGHT_MULT = 2.2200;
 
 // Warps each seed's influence boundary into irregular crag shapes.
 // Higher values produce rougher, more jagged silhouettes; lower values stay rounder.
-export const CRAG_STRENGTH = .15;
+export const CRAG_STRENGTH = .45;
 
 // Number of angular lobes sampled around each seed's boundary distortion.
 // Lower values yield broad bulges; higher values create tighter crags.
-export const CRAG_FREQ = 0.8;
+export const CRAG_FREQ = 1.0;
 
 // Frequency of the broad "sweep" undulation layered over all terrain,
 // including flat plateau tops (unlike SCALE's texture, this isn't
 // dampened near seed centers). Much lower than SCALE - should stay
 // noticeably broader/slower than the main terrain texture.
-export const SWEEP_SCALE = .055;
+export const SWEEP_SCALE = .0390;
 
 // World-height amplitude of the sweep layer.
 // Higher values add more visible large-scale rolling variation on top
 // of otherwise-flat areas; lower values keep plateaus calmer.
-export const SWEEP_AMP = 2.7;
+export const SWEEP_AMP = 2.7200;
 
 // Vertical scale applied to each terrain tier level (valleys/plateaus/
 // ridges from the seed-cone system). This is now the dominant driver of
 // overall terrain height - higher values produce taller peaks and
 // deeper valleys; lower values flatten the whole shard toward sea level.
 //optimal value : .268
-export const TIER_HEIGHT_SCALE = 0.268;
+export const TIER_HEIGHT_SCALE = 0.220;
 
 // Half-width of the simulation shard used for gameplay bounds around origin.
 // Larger values allow agents/systems to roam farther; smaller values constrain
@@ -72,6 +72,15 @@ export const GROUND_SEGMENTS = Math.round(GROUND_SIZE / SEGMENT_DENSITY);
 // heightmap reproduces the same surface the triangles render, so units
 // sit exactly on the visible ground instead of the underlying noise.
 export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
+
+// Below this, terrain reads as easily climbable (tracked-vehicle-in-snow
+// traction limits). Also feeds future Heat-cost-by-steepness/cliff logic -
+// keep in sync with any gameplay use of slope_degrees_at.
+export const SLOPE_EASY_DEG = 15;
+
+// At or above this, terrain approaches tracked-vehicle max slope in snow -
+// treat as effectively cliff-equivalent for debug coloring purposes.
+export const SLOPE_HARD_DEG = 28;
 
 // Number of units spawned during initial setup.
 // Higher values increase scene/simulation load; lower values lighten CPU/GPU cost.
