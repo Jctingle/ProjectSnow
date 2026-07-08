@@ -59,19 +59,21 @@ export function getGroundClickPoint(
 
   if (a === null || b === null) return null;
 
-  let fa = f(a);
+  let left = a;
+  let right = b;
+  let fa = f(left);
   for (let i = 0; i < 20; i++) {
-    const mid = (a + b) / 2;
+    const mid: number = (left + right) / 2;
     const fm = f(mid);
     if (Math.sign(fm) === Math.sign(fa)) {
-      a = mid;
+      left = mid;
       fa = fm;
     } else {
-      b = mid;
+      right = mid;
     }
   }
 
-  const tFinal = (a + b) / 2;
+  const tFinal: number = (left + right) / 2;
   const x = origin.x + dir.x * tFinal;
   const z = origin.z + dir.z * tFinal;
   return new THREE.Vector3(x, heightAt(tFinal), z);
