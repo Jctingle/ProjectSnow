@@ -1,0 +1,236 @@
+mod grid;
+#[cfg(test)]
+mod tests;
+
+use crate::rng::Rng;
+use noise::{NoiseFn, Simplex};
+
+struct TerrainSeed {
+    x: f32,
+    z: f32,
+    base_value: f32,
+    decay_rate: f32,
+}
+
+const MIN_SEEDS: usize = 3;
+const MAX_SEEDS: usize = 8;
+const TIER_MIN: f32 = 0.0;
+const TIER_MAX: f32 = 9.0;
+const DECAY_MIN: f32 = 0.15;
+const DECAY_MAX: f32 = 1.2;
+const EXPECTED_TIER: f32 = (TIER_MIN + TIER_MAX) / 2.0;
+const MAX_INFLUENCE_RADIUS: f32 = (TIER_MAX - EXPECTED_TIER) / DECAY_MIN;
+const SEA_LEVEL: f32 = -3.0;
+const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
+const INTERIOR_NOISE_AMP: f32 = 0.2;
+const STRUCTURE_MARGIN: f32 = 1.0;
+
+pub struct Terrain {
+    simplex: Simplex,
+    crag_noise: Simplex,
+    sweep_noise: Simplex,
+    seed_x: f64,
+    seed_y: f64,
+    scale: f64,
+    height_mult: f32,
+    crag_strength: f32,
+    crag_freq: f64,
+    sweep_scale: f64,
+    sweep_amp: f32,
+    tier_height_scale: f32,
+    seeds: Vec<TerrainSeed>,
+    zone_threshold: f32,
+    heightmap: Vec<f32>,
+    slopemap: Vec<f32>,
+    hm_width: usize,
+    hm_height: usize,
+    hm_half_w: f32,
+    hm_half_h: f32,
+    hm_cell_w: f32,
+    hm_cell_h: f32,
+}
+
+impl Terrain {
+    pub fn new(
+        noise_seed: u32,
+        seed_x: f64,
+        seed_y: f64,
+        scale: f64,
+        height_mult: f32,
+        crag_strength: f32,
+        crag_freq: f64,
+        sweep_scale: f64,
+        sweep_amp: f32,
+        tier_height_scale: f32,
+    ) -> Self {
+        Self {
+            simplex: Simplex::new(noise_seed),
+            crag_noise: Simplex::new(noise_seed.wrapping_add(1)),
+            sweep_noise: Simplex::new(noise_seed.wrapping_add(2)),
+            seed_x,
+            seed_y,
+            scale,
+            height_mult,
+            crag_strength,
+            crag_freq,
+            sweep_scale,
+            sweep_amp,
+            tier_height_scale,
+            seeds: Vec::new(),
+            zone_threshold: 0.0,
+            heightmap: Vec::new(),
+            slopemap: Vec::new(),
+            hm_width: 0,
+            hm_height: 0,
+            hm_half_w: 0.0,
+            hm_half_h: 0.0,
+            hm_cell_w: 1.0,
+            hm_cell_h: 1.0,
+        }
+    }
+
+    pub fn generate_variance(&mut self, rng: &mut Rng, half_extent: f32) {
+        let seed_count = MIN_SEEDS
+            + (rng.next_unsigned() * (MAX_SEEDS - MIN_SEEDS + 1) as f32) as usize;
+        let seed_count = seed_count.min(MAX_SEEDS);
+
+        self.seeds = (0..seed_count)
+            .map(|_| TerrainSeed {
+                x: rng.next_signed() * half_extent,
+                z: rng.next_signed() * half_extent,
+                base_value: TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN),
+                decay_rate: DECAY_MIN + rng.next_unsigned() * (DECAY_MAX - DECAY_MIN),
+            })
+            .collect();
+
+        self.zone_threshold = TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN);
+    }
+
+    pub fn regenerate(&mut self, noise_seed: u32) {
+        self.simplex = Simplex::new(noise_seed);
+        self.crag_noise = Simplex::new(noise_seed.wrapping_add(1));
+        self.sweep_noise = Simplex::new(noise_seed.wrapping_add(2));
+
+        let half_extent = self.hm_half_w;
+        let mut rng = Rng::new(noise_seed);
+        self.generate_variance(&mut rng, half_extent);
+    }
+
+    pub fn set_height_mult(&mut self, v: f32) {
+        self.height_mult = v;
+    }
+
+    pub fn set_crag_strength(&mut self, v: f32) {
+        self.crag_strength = v;
+    }
+
+    pub fn set_crag_freq(&mut self, v: f64) {
+        self.crag_freq = v;
+    }
+
+    pub fn set_sweep_scale(&mut self, v: f64) {
+        self.sweep_scale = v;
+    }
+
+    pub fn set_sweep_amp(&mut self, v: f32) {
+        self.sweep_amp = v;
+    }
+
+    pub fn set_tier_height_scale(&mut self, v: f32) {
+        self.tier_height_scale = v;
+    }
+
+    fn tier_value(&self, x: f32, z: f32) -> (f32, f32) {
+        let mut top1 = f32::NEG_INFINITY;
+        let mut top2 = f32::NEG_INFINITY;
+
+        for seed in &self.seeds {
+            let dx = x - seed.x;
+            let dz = z - seed.z;
+            let base_dist = (dx * dx + dz * dz).sqrt();
+            let crag = self.crag_distortion(seed, dx, dz);
+            let dist = (base_dist * (1.0 + crag * self.crag_strength)).max(0.0);
+            if dist > MAX_INFLUENCE_RADIUS {
+                continue;
+            }
+            let value = seed.base_value - seed.decay_rate * dist;
+            if value > top1 {
+                top2 = top1;
+                top1 = value;
+            } else if value > top2 {
+                top2 = value;
+            }
+        }
+
+        if top1 == f32::NEG_INFINITY {
+            return (EXPECTED_TIER, f32::INFINITY);
+        }
+
+        (top1, top1 - top2)
+    }
+
+    fn noise_amplitude(margin: f32) -> f32 {
+        let t = (margin / BOUNDARY_INFLUENCE_RADIUS).clamp(0.0, 1.0);
+        INTERIOR_NOISE_AMP + (1.0 - INTERIOR_NOISE_AMP) * (1.0 - t)
+    }
+
+    fn crag_distortion(&self, seed: &TerrainSeed, dx: f32, dz: f32) -> f32 {
+        let angle = (dz as f64).atan2(dx as f64);
+        let nx = seed.x as f64 * 0.01 + angle.cos() * self.crag_freq;
+        let nz = seed.z as f64 * 0.01 + angle.sin() * self.crag_freq;
+        self.crag_noise.get([nx, nz]) as f32
+    }
+
+    pub fn sample_height(&self, x: f64, z: f64) -> f32 {
+        let (tier, margin) = self.tier_value(x as f32, z as f32);
+        let normalized_tier = tier - EXPECTED_TIER;
+        let noise = self
+            .simplex
+            .get([(x + self.seed_x) * self.scale, (z + self.seed_y) * self.scale])
+            as f32;
+        let sweep = self
+            .sweep_noise
+            .get([
+                (x + self.seed_x) * self.sweep_scale,
+                (z + self.seed_y) * self.sweep_scale,
+            ]) as f32;
+        let raw = normalized_tier * self.tier_height_scale
+            + noise * Self::noise_amplitude(margin)
+            + sweep * self.sweep_amp;
+        raw.max(SEA_LEVEL)
+    }
+
+    pub fn zone_at(&self, x: f32, z: f32) -> u8 {
+        let (tier, _) = self.tier_value(x, z);
+        if tier < self.zone_threshold { 0 } else { 1 }
+    }
+
+    pub fn is_structure_viable(&self, x: f32, z: f32) -> bool {
+        self.tier_value(x, z).1 > STRUCTURE_MARGIN
+    }
+
+    fn gradient_at(&self, x: f32, z: f32) -> f32 {
+        const EPS: f32 = 0.5;
+        let h0 = self.sample_height(x as f64, z as f64);
+        let hx = self.sample_height((x + EPS) as f64, z as f64);
+        let hz = self.sample_height(x as f64, (z + EPS) as f64);
+        let dhx = (hx - h0) * self.height_mult;
+        let dhz = (hz - h0) * self.height_mult;
+        (dhx * dhx + dhz * dhz).sqrt() / EPS
+    }
+
+    pub fn steepness_at(&self, x: f32, z: f32) -> f32 {
+        self.gradient_at(x, z)
+    }
+
+    /// Slope in degrees at an arbitrary world-space point. This is the
+    /// durable, multi-purpose slope query - gameplay systems (Heat cost
+    /// per movement, cliff/connectivity checks) should call THIS, not the
+    /// debug slopemap grid added separately for mesh-vertex coloring.
+    /// The slopemap exists only to match the heightmap's render-grid
+    /// resolution for the debug overlay and can be removed independently
+    /// of this function if the overlay is ever ripped out.
+    pub fn slope_degrees_at(&self, x: f32, z: f32) -> f32 {
+        self.gradient_at(x, z).atan().to_degrees()
+    }
+}
