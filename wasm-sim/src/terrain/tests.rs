@@ -200,3 +200,17 @@ fn noise_layer_continuous_across_shard_boundary() {
         );
     }
 }
+
+#[test]
+fn crag_reach_bound_keeps_ring1_sufficient() {
+    let max_reach = MAX_INFLUENCE_RADIUS / MIN_CRAG_MULT;
+    let shard_step = 144.0_f32; // GROUND_SIZE; keep in sync if that changes
+    let half_extent = shard_step / 2.0;
+    let min_dist_to_outside_ring = shard_step + half_extent - half_extent; // = shard_step
+    assert!(
+        max_reach < min_dist_to_outside_ring,
+        "crag reach bound ({max_reach}) must stay below min distance to \
+         outside-ring seeds ({min_dist_to_outside_ring}) or assemble_seeds \
+         needs a wider ring"
+    );
+}

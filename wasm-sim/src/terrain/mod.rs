@@ -22,6 +22,17 @@ const DECAY_MIN: f32 = 0.15;
 const DECAY_MAX: f32 = 1.2;
 const EXPECTED_TIER: f32 = (TIER_MIN + TIER_MAX) / 2.0;
 const MAX_INFLUENCE_RADIUS: f32 = (TIER_MAX - EXPECTED_TIER) / DECAY_MIN;
+/// Floor on the crag distortion multiplier. This is correctness-critical,
+/// not a style knob: it bounds the maximum reach of any seed to
+/// MAX_INFLUENCE_RADIUS / MIN_CRAG_MULT = 30 / 0.25 = 120 world units.
+/// The nearest any seed from outside the included 3x3 cell ring can sit
+/// to a query point inside this shard is 144 units with current dimensions.
+/// Since 120 < 144, the 3x3 ring in assemble_seeds is provably sufficient
+/// at any crag_strength setting. Do not lower this constant or raise
+/// MAX_INFLUENCE_RADIUS without re-checking that inequality, and do not
+/// expose this through config/dev UI since tuning it can silently break
+/// cross-shard determinism.
+const MIN_CRAG_MULT: f32 = 0.25;
 const LAYER_TERRAIN_SEEDS: u32 = 0;
 const SEA_LEVEL: f32 = -3.0;
 const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
@@ -126,6 +137,15 @@ impl Terrain {
         (seeds, zone_threshold)
     }
 
+    /// Builds the full effective seed list for shard (row, col): this
+    /// shard's own seeds plus all 8 surrounding cells' seeds (orthogonal +
+    /// diagonal), translated into this shard's local frame. The 3x3 ring is
+    /// sufficient because MIN_CRAG_MULT bounds any seed's maximum effective
+    /// reach to MAX_INFLUENCE_RADIUS / MIN_CRAG_MULT = 120 world units,
+    /// which is less than the 144-unit minimum distance from any in-shard
+    /// query point to any seed outside the ring. Both halves of that
+    /// argument are load-bearing: see MIN_CRAG_MULT's comment before
+    /// changing either constant.
     fn assemble_seeds(
         world_seed: u32,
         row: i32,
@@ -135,7 +155,16 @@ impl Terrain {
         let shard_step = half_extent * 2.0;
         let (mut seeds, zone_threshold) = Self::seeds_for_cell(world_seed, row, col, half_extent);
 
-        let neighbor_offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        let neighbor_offsets = [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (-1, 1),
+            (1, -1),
+            (1, 1),
+        ];
         for (dr, dc) in neighbor_offsets {
             let (n_row, n_col) = (row + dr, col + dc);
             let (n_seeds, _) = Self::seeds_for_cell(world_seed, n_row, n_col, half_extent);
@@ -202,7 +231,7 @@ impl Terrain {
             let dz = z - seed.z;
             let base_dist = (dx * dx + dz * dz).sqrt();
             let crag = self.crag_distortion(seed, dx, dz);
-            let dist = (base_dist * (1.0 + crag * self.crag_strength)).max(0.0);
+            let dist = base_dist * (1.0 + crag * self.crag_strength).max(MIN_CRAG_MULT);
             if dist > MAX_INFLUENCE_RADIUS {
                 continue;
             }
