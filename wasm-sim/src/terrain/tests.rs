@@ -214,3 +214,31 @@ fn crag_reach_bound_keeps_ring1_sufficient() {
          needs a wider ring"
     );
 }
+
+#[test]
+fn cloned_shard_cached_heightmap_matches_live_sampling() {
+    let world_seed = 4242u32;
+    let mut current =
+        Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    current.generate_heightmap(0, 0, 144.0, 144.0);
+    current.regenerate(world_seed, 0, 0);
+    current.generate_heightmap(145, 145, 144.0, 144.0);
+    current.generate_slopemap();
+
+    let next = current.clone_params_for(world_seed, 0, 1);
+
+    for &(x, z) in &[
+        (0.0f32, 0.0f32),
+        (30.0, -20.0),
+        (-50.0, 45.0),
+        (71.0, 0.0),
+        (-71.0, -71.0),
+    ] {
+        let cached = next.height_at_or_sample(x, z);
+        let live = next.sample_height(x as f64, z as f64);
+        assert!(
+            (cached - live).abs() <= 0.06,
+            "cloned shard cache stale at ({x},{z}): cached={cached:.4} live={live:.4}"
+        );
+    }
+}

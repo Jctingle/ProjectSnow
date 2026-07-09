@@ -242,8 +242,9 @@ impl Terrain {
 
         let world_w = self.hm_half_w * 2.0;
         let world_h = self.hm_half_h * 2.0;
-        terrain.generate_heightmap(self.hm_width, self.hm_height, world_w, world_h);
+        terrain.generate_heightmap(0, 0, world_w, world_h);
         terrain.regenerate(world_seed, row, col);
+        terrain.generate_heightmap(self.hm_width, self.hm_height, world_w, world_h);
         terrain.generate_slopemap();
         terrain
     }
