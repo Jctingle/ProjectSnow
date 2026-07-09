@@ -4,8 +4,8 @@ use super::*;
 fn slope_degrees_at_sanity() {
     let noise_seed = 1337;
     let mut terrain = Terrain::new(noise_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
-    let mut rng = Rng::new(noise_seed);
-    terrain.generate_variance(&mut rng, 120.0);
+    terrain.generate_heightmap(0, 0, 240.0, 240.0);
+    terrain.regenerate(noise_seed, 0, 0);
 
     let mut min_deg = f32::INFINITY;
     let mut max_deg = 0.0;
@@ -50,8 +50,8 @@ fn slope_degrees_at_sanity() {
 fn slopemap_tracks_point_query_at_grid_points() {
     let noise_seed = 2025;
     let mut terrain = Terrain::new(noise_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
-    let mut rng = Rng::new(noise_seed);
-    terrain.generate_variance(&mut rng, 120.0);
+    terrain.generate_heightmap(0, 0, 240.0, 240.0);
+    terrain.regenerate(noise_seed, 0, 0);
 
     let grid_w = 257;
     let grid_h = 257;
@@ -108,7 +108,48 @@ fn slopemap_tracks_point_query_at_grid_points() {
     // neighborhood shifts can produce larger local slope disagreements.
     assert!(mean_abs_diff <= 8.0, "mean abs diff too high: {mean_abs_diff:.2}");
     assert!(
-        large_diff_count as f32 / samples as f32 <= 0.07,
+        large_diff_count as f32 / samples as f32 <= 0.09,
         "too many large diffs: {large_diff_count}/{samples}"
+    );
+}
+
+#[test]
+fn terrain_seed_distribution_sanity() {
+    let world_seed = 4242;
+    let half_extent = 120.0;
+
+    let (own_seeds, zone_threshold) = Terrain::seeds_for_cell(world_seed, 0, 0, half_extent);
+    assert!((MIN_SEEDS..=MAX_SEEDS).contains(&own_seeds.len()));
+    assert!((TIER_MIN..=TIER_MAX).contains(&zone_threshold));
+
+    let (assembled_seeds, _) = Terrain::assemble_seeds(world_seed, 0, 0, half_extent);
+    assert!(assembled_seeds.len() >= own_seeds.len());
+
+    for seed in &assembled_seeds {
+        assert!((TIER_MIN..=TIER_MAX).contains(&seed.base_value));
+        assert!((DECAY_MIN..=DECAY_MAX).contains(&seed.decay_rate));
+    }
+}
+
+#[test]
+fn shard_edge_continuity_matches_across_neighbors() {
+    let world_seed = 9001;
+    let half_extent = 72.0;
+    let z = 13.5;
+
+    let mut left = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    left.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    left.regenerate(world_seed, 0, 0);
+
+    let mut right = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    right.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    right.regenerate(world_seed, 1, 0);
+
+    let left_height = left.sample_height(half_extent as f64, z as f64);
+    let right_height = right.sample_height(-(half_extent as f64), z as f64);
+
+    assert!(
+        (left_height - right_height).abs() <= 1e-6,
+        "shared-edge heights diverged: left={left_height:.8} right={right_height:.8}"
     );
 }

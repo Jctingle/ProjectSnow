@@ -2,7 +2,7 @@ mod grid;
 #[cfg(test)]
 mod tests;
 
-use crate::rng::Rng;
+use crate::rng::{cell_seed, Rng};
 use noise::{NoiseFn, Simplex};
 
 struct TerrainSeed {
@@ -20,6 +20,7 @@ const DECAY_MIN: f32 = 0.15;
 const DECAY_MAX: f32 = 1.2;
 const EXPECTED_TIER: f32 = (TIER_MIN + TIER_MAX) / 2.0;
 const MAX_INFLUENCE_RADIUS: f32 = (TIER_MAX - EXPECTED_TIER) / DECAY_MIN;
+const LAYER_TERRAIN_SEEDS: u32 = 0;
 const SEA_LEVEL: f32 = -3.0;
 const BOUNDARY_INFLUENCE_RADIUS: f32 = 6.0;
 const INTERIOR_NOISE_AMP: f32 = 0.2;
@@ -89,12 +90,18 @@ impl Terrain {
         }
     }
 
-    pub fn generate_variance(&mut self, rng: &mut Rng, half_extent: f32) {
+    fn seeds_for_cell(
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        half_extent: f32,
+    ) -> (Vec<TerrainSeed>, f32) {
+        let mut rng = Rng::new(cell_seed(world_seed, row, col, LAYER_TERRAIN_SEEDS));
         let seed_count = MIN_SEEDS
             + (rng.next_unsigned() * (MAX_SEEDS - MIN_SEEDS + 1) as f32) as usize;
         let seed_count = seed_count.min(MAX_SEEDS);
 
-        self.seeds = (0..seed_count)
+        let seeds = (0..seed_count)
             .map(|_| TerrainSeed {
                 x: rng.next_signed() * half_extent,
                 z: rng.next_signed() * half_extent,
@@ -103,17 +110,45 @@ impl Terrain {
             })
             .collect();
 
-        self.zone_threshold = TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN);
+        let zone_threshold = TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN);
+        (seeds, zone_threshold)
     }
 
-    pub fn regenerate(&mut self, noise_seed: u32) {
-        self.simplex = Simplex::new(noise_seed);
-        self.crag_noise = Simplex::new(noise_seed.wrapping_add(1));
-        self.sweep_noise = Simplex::new(noise_seed.wrapping_add(2));
+    fn assemble_seeds(
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        half_extent: f32,
+    ) -> (Vec<TerrainSeed>, f32) {
+        let shard_step = half_extent * 2.0;
+        let (mut seeds, zone_threshold) = Self::seeds_for_cell(world_seed, row, col, half_extent);
+
+        let neighbor_offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        for (dr, dc) in neighbor_offsets {
+            let (n_row, n_col) = (row + dr, col + dc);
+            let (n_seeds, _) = Self::seeds_for_cell(world_seed, n_row, n_col, half_extent);
+            for s in n_seeds {
+                seeds.push(TerrainSeed {
+                    x: s.x + dc as f32 * shard_step,
+                    z: s.z + dr as f32 * shard_step,
+                    base_value: s.base_value,
+                    decay_rate: s.decay_rate,
+                });
+            }
+        }
+
+        (seeds, zone_threshold)
+    }
+
+    pub fn regenerate(&mut self, world_seed: u32, row: i32, col: i32) {
+        self.simplex = Simplex::new(world_seed);
+        self.crag_noise = Simplex::new(world_seed.wrapping_add(1));
+        self.sweep_noise = Simplex::new(world_seed.wrapping_add(2));
 
         let half_extent = self.hm_half_w;
-        let mut rng = Rng::new(noise_seed);
-        self.generate_variance(&mut rng, half_extent);
+        let (seeds, zone_threshold) = Self::assemble_seeds(world_seed, row, col, half_extent);
+        self.seeds = seeds;
+        self.zone_threshold = zone_threshold;
     }
 
     pub fn set_height_mult(&mut self, v: f32) {

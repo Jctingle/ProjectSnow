@@ -49,8 +49,8 @@ impl Sim {
             sweep_amp,
             tier_height_scale,
         );
-        let mut terrain_rng = Rng::new(noise_seed);
-        terrain.generate_variance(&mut terrain_rng, terrain_half_extent);
+        terrain.generate_heightmap(0, 0, terrain_half_extent * 2.0, terrain_half_extent * 2.0);
+        terrain.regenerate(noise_seed, 0, 0);
 
         Sim {
             terrain,
@@ -80,7 +80,7 @@ impl Sim {
     }
 
     pub fn regenerate_terrain(&mut self, noise_seed: u32) {
-        self.terrain.regenerate(noise_seed);
+        self.terrain.regenerate(noise_seed, 0, 0);
     }
 
     pub fn set_height_mult(&mut self, v: f32) {
