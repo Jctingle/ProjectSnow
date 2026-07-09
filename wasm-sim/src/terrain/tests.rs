@@ -155,3 +155,48 @@ fn shard_edge_continuity_matches_across_neighbors() {
         );
     }
 }
+
+#[test]
+fn noise_layer_continuous_across_shard_boundary() {
+    let world_seed = 4242;
+    let half_extent = 72.0;
+
+    let mut left = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    left.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    left.regenerate(world_seed, 0, 0);
+
+    let mut right = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    right.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    right.regenerate(world_seed, 0, 1);
+
+    for zi in -24..=24 {
+        let z = zi as f32 * 3.0;
+        let l = left.sample_height(half_extent as f64, z as f64);
+        let r = right.sample_height(-(half_extent as f64), z as f64);
+        assert!(
+            (l - r).abs() <= 1e-4,
+            "shared-edge height diverged at z={z:.1}: left={l:.8} right={r:.8}"
+        );
+    }
+
+    // Also check a row-adjacent pair (Z axis), not just column-adjacent,
+    // since seed_y/row was never exercised by the earlier X-axis-only tests.
+    let mut top = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    top.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    top.regenerate(world_seed, 0, 0);
+
+    let mut bottom =
+        Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    bottom.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    bottom.regenerate(world_seed, 1, 0);
+
+    for xi in -24..=24 {
+        let x = xi as f32 * 3.0;
+        let t = top.sample_height(x as f64, half_extent as f64);
+        let b = bottom.sample_height(x as f64, -(half_extent as f64));
+        assert!(
+            (t - b).abs() <= 1e-4,
+            "shared-edge height diverged at x={x:.1}: top={t:.8} bottom={b:.8}"
+        );
+    }
+}

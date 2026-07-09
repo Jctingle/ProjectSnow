@@ -32,6 +32,8 @@ pub struct Terrain {
     simplex: Simplex,
     crag_noise: Simplex,
     sweep_noise: Simplex,
+    base_seed_x: f64,
+    base_seed_y: f64,
     seed_x: f64,
     seed_y: f64,
     scale: f64,
@@ -70,6 +72,8 @@ impl Terrain {
             simplex: Simplex::new(noise_seed),
             crag_noise: Simplex::new(noise_seed.wrapping_add(1)),
             sweep_noise: Simplex::new(noise_seed.wrapping_add(2)),
+            base_seed_x: seed_x,
+            base_seed_y: seed_y,
             seed_x,
             seed_y,
             scale,
@@ -154,6 +158,10 @@ impl Terrain {
         self.simplex = Simplex::new(world_seed);
         self.crag_noise = Simplex::new(world_seed.wrapping_add(1));
         self.sweep_noise = Simplex::new(world_seed.wrapping_add(2));
+
+        let shard_step = (self.hm_half_w * 2.0) as f64;
+        self.seed_x = self.base_seed_x + col as f64 * shard_step;
+        self.seed_y = self.base_seed_y + row as f64 * shard_step;
 
         let half_extent = self.hm_half_w;
         let (seeds, zone_threshold) = Self::assemble_seeds(world_seed, row, col, half_extent);
