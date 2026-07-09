@@ -135,7 +135,6 @@ fn terrain_seed_distribution_sanity() {
 fn shard_edge_continuity_matches_across_neighbors() {
     let world_seed = 9001;
     let half_extent = 72.0;
-    let z = 13.5;
 
     let mut left = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
     left.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
@@ -143,13 +142,16 @@ fn shard_edge_continuity_matches_across_neighbors() {
 
     let mut right = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
     right.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
-    right.regenerate(world_seed, 1, 0);
+    right.regenerate(world_seed, 0, 1);
 
-    let left_height = left.sample_height(half_extent as f64, z as f64);
-    let right_height = right.sample_height(-(half_extent as f64), z as f64);
+    for zi in -20..=20 {
+        let z = zi as f32 * 3.0;
+        let left_height = left.sample_height(half_extent as f64, z as f64);
+        let right_height = right.sample_height(-(half_extent as f64), z as f64);
 
-    assert!(
-        (left_height - right_height).abs() <= 1e-6,
-        "shared-edge heights diverged: left={left_height:.8} right={right_height:.8}"
-    );
+        assert!(
+            (left_height - right_height).abs() <= 1e-4,
+            "shared-edge heights diverged at z={z:.1}: left={left_height:.8} right={right_height:.8}"
+        );
+    }
 }

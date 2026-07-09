@@ -8,6 +8,8 @@ use noise::{NoiseFn, Simplex};
 struct TerrainSeed {
     x: f32,
     z: f32,
+    canonical_x: f32,
+    canonical_z: f32,
     base_value: f32,
     decay_rate: f32,
 }
@@ -102,11 +104,17 @@ impl Terrain {
         let seed_count = seed_count.min(MAX_SEEDS);
 
         let seeds = (0..seed_count)
-            .map(|_| TerrainSeed {
-                x: rng.next_signed() * half_extent,
-                z: rng.next_signed() * half_extent,
-                base_value: TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN),
-                decay_rate: DECAY_MIN + rng.next_unsigned() * (DECAY_MAX - DECAY_MIN),
+            .map(|_| {
+                let x = rng.next_signed() * half_extent;
+                let z = rng.next_signed() * half_extent;
+                TerrainSeed {
+                    x,
+                    z,
+                    canonical_x: x,
+                    canonical_z: z,
+                    base_value: TIER_MIN + rng.next_unsigned() * (TIER_MAX - TIER_MIN),
+                    decay_rate: DECAY_MIN + rng.next_unsigned() * (DECAY_MAX - DECAY_MIN),
+                }
             })
             .collect();
 
@@ -131,6 +139,8 @@ impl Terrain {
                 seeds.push(TerrainSeed {
                     x: s.x + dc as f32 * shard_step,
                     z: s.z + dr as f32 * shard_step,
+                    canonical_x: s.canonical_x,
+                    canonical_z: s.canonical_z,
                     base_value: s.base_value,
                     decay_rate: s.decay_rate,
                 });
@@ -211,8 +221,8 @@ impl Terrain {
 
     fn crag_distortion(&self, seed: &TerrainSeed, dx: f32, dz: f32) -> f32 {
         let angle = (dz as f64).atan2(dx as f64);
-        let nx = seed.x as f64 * 0.01 + angle.cos() * self.crag_freq;
-        let nz = seed.z as f64 * 0.01 + angle.sin() * self.crag_freq;
+        let nx = seed.canonical_x as f64 * 0.01 + angle.cos() * self.crag_freq;
+        let nz = seed.canonical_z as f64 * 0.01 + angle.sin() * self.crag_freq;
         self.crag_noise.get([nx, nz]) as f32
     }
 
