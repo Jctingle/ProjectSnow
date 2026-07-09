@@ -58,6 +58,19 @@ impl Units {
         }
     }
 
+    pub fn rebase(&mut self, dx: f32, dz: f32) {
+        for pos in self.positions.chunks_exact_mut(3).take(self.count) {
+            pos[0] += dx;
+            pos[2] += dz;
+        }
+        for t in self.target_x.iter_mut().take(self.count) {
+            *t += dx;
+        }
+        for t in self.target_z.iter_mut().take(self.count) {
+            *t += dz;
+        }
+    }
+
     pub fn spawn_unit(&mut self, x: f32, z: f32, terrain: &Terrain) -> i32 {
         if self.count >= self.max_units {
             return -1;
