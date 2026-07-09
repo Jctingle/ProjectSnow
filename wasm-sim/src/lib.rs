@@ -111,6 +111,18 @@ impl Sim {
         self.units.spawn_unit(x, z, &self.terrain)
     }
 
+    pub fn set_unit_recall(&mut self, active: bool) {
+        self.units.set_recall(active);
+    }
+
+    pub fn deployed_unit_count(&self) -> usize {
+        self.units.deployed_count()
+    }
+
+    pub fn deploy_all_units(&mut self) {
+        self.units.deploy_all();
+    }
+
     pub fn tick(&mut self, delta: f32) {
         self.apc.tick(delta, &self.terrain);
         self.units

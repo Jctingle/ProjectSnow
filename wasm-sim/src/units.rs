@@ -3,6 +3,7 @@ use crate::terrain::Terrain;
 
 const SEEK_APC: u8 = 0;
 const SEEK_RANDOM: u8 = 1;
+const CREWED: u8 = 2;
 pub(crate) const UNIT_SPEED: f32 = 0.1;
 const UNIT_TOUCH_RADIUS: f32 = 0.3;
 const UNIT_TOUCH_RADIUS_SQ: f32 = UNIT_TOUCH_RADIUS * UNIT_TOUCH_RADIUS;
@@ -16,6 +17,7 @@ pub struct Units {
     count: usize,
     max_units: usize,
     shard_half: f32,
+    recall_active: bool,
 }
 
 impl Units {
@@ -28,6 +30,31 @@ impl Units {
             count: 0,
             max_units,
             shard_half,
+            recall_active: false,
+        }
+    }
+
+    pub fn set_recall(&mut self, active: bool) {
+        self.recall_active = active;
+    }
+
+    pub fn recall_active(&self) -> bool {
+        self.recall_active
+    }
+
+    pub fn deployed_count(&self) -> usize {
+        self.states
+            .iter()
+            .take(self.count)
+            .filter(|&&s| s != CREWED)
+            .count()
+    }
+
+    pub fn deploy_all(&mut self) {
+        for s in self.states.iter_mut().take(self.count) {
+            if *s == CREWED {
+                *s = SEEK_APC;
+            }
         }
     }
 
@@ -61,6 +88,10 @@ impl Units {
             .zip(self.target_x.iter_mut().take(self.count))
             .zip(self.target_z.iter_mut().take(self.count))
         {
+            if *state == CREWED {
+                continue;
+            }
+
             let (goal_x, goal_z) = if *state == SEEK_APC {
                 (apc_x, apc_z)
             } else {
@@ -73,9 +104,13 @@ impl Units {
 
             if dist_sq < UNIT_TOUCH_RADIUS_SQ {
                 if *state == SEEK_APC {
-                    *tx = rng.next_signed() * self.shard_half;
-                    *tz = rng.next_signed() * self.shard_half;
-                    *state = SEEK_RANDOM;
+                    if self.recall_active {
+                        *state = CREWED;
+                    } else {
+                        *tx = rng.next_signed() * self.shard_half;
+                        *tz = rng.next_signed() * self.shard_half;
+                        *state = SEEK_RANDOM;
+                    }
                 } else {
                     *state = SEEK_APC;
                 }
@@ -102,5 +137,54 @@ impl Units {
 
     pub fn max_units(&self) -> usize {
         self.max_units
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terrain::Terrain;
+
+    fn build_test_terrain(seed: u32) -> Terrain {
+        let mut terrain = Terrain::new(seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+        terrain.generate_heightmap(0, 0, 144.0, 144.0);
+        terrain.regenerate(seed, 0, 0);
+        terrain
+    }
+
+    #[test]
+    fn recall_boards_units_and_deploy_all_restores_deployed_count() {
+        let terrain = build_test_terrain(7777);
+        let mut units = Units::new(8, 72.0);
+        let mut rng = Rng::new(2026);
+
+        assert_eq!(units.spawn_unit(0.6, 0.0, &terrain), 0);
+        assert_eq!(units.spawn_unit(-0.5, 0.2, &terrain), 1);
+        assert_eq!(units.spawn_unit(0.2, -0.6, &terrain), 2);
+        assert_eq!(units.deployed_count(), 3);
+
+        units.set_recall(true);
+        assert!(units.recall_active());
+
+        let delta = 1.0 / 60.0;
+
+        let mut boarded = false;
+        for _ in 0..10_000 {
+            units.tick(delta, (0.0, 0.0), &terrain, &mut rng);
+            if units.deployed_count() == 0 {
+                boarded = true;
+                break;
+            }
+        }
+
+        assert!(boarded, "units never fully boarded within tick budget");
+
+        let before = units.positions.clone();
+        units.tick(delta, (0.0, 0.0), &terrain, &mut rng);
+        let after = units.positions.clone();
+        assert_eq!(before, after, "crewed units should stop moving");
+
+        units.deploy_all();
+        assert_eq!(units.deployed_count(), 3);
     }
 }
