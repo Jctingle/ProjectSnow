@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { getSim, getSlopemap } from './entityStore';
+import { getNextHeightmap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
@@ -9,7 +9,7 @@ import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { applySlopeDebugColors, clearSlopeDebugColors } from './world/terrainDebug';
-import { createTerrainMesh } from './world/terrain';
+import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import { spawnInitialUnits } from './world/units';
 
 const scene    = new THREE.Scene();
@@ -51,10 +51,54 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 let ground = createTerrainMesh(sim);
 scene.add(ground);
 let slopeDebugOn = false;
+let nextGround: THREE.Mesh | null = null;
+let nextShardKey: string | null = null;
+let prevShardRow = sim.current_shard_row();
+let prevShardCol = sim.current_shard_col();
+let hasRunNextHeightmapSanityCheck = false;
+
+function disposeTerrainMesh(mesh: THREE.Mesh): void {
+  scene.remove(mesh);
+  mesh.geometry.dispose();
+  const material = mesh.material;
+  if (Array.isArray(material)) {
+    for (const m of material) m.dispose();
+  } else {
+    material.dispose();
+  }
+}
+
+function warnIfNextHeightmapLooksInvalid(heightmap: Float32Array): void {
+  if (hasRunNextHeightmapSanityCheck) return;
+  hasRunNextHeightmapSanityCheck = true;
+
+  const length = heightmap.length;
+  if (length === 0) {
+    console.warn('[next-shard] heightmap sanity check failed: empty next-heightmap view.');
+    return;
+  }
+
+  const indices = [
+    0,
+    Math.floor(length * 0.25),
+    Math.floor(length * 0.5),
+    length - 1,
+  ];
+  const samples = indices.map((idx) => ({ idx, value: heightmap[idx] }));
+  const bad = samples.filter(
+    ({ value }) => !Number.isFinite(value) || value <= -10 || value >= 50
+  );
+
+  if (bad.length > 0) {
+    console.warn(
+      '[next-shard] heightmap sanity check failed: sampled values look invalid.',
+      { samples }
+    );
+  }
+}
 
 function rebuildGroundMesh(): void {
-  scene.remove(ground);
-  ground.geometry.dispose();
+  disposeTerrainMesh(ground);
   ground = createTerrainMesh(sim);
   scene.add(ground);
   if (slopeDebugOn) {
@@ -129,6 +173,57 @@ function animate() {
   while (accumulator >= SIM_RATE) {
     tick(SIM_RATE);
     accumulator -= SIM_RATE;
+  }
+
+  const currentShardRow = sim.current_shard_row();
+  const currentShardCol = sim.current_shard_col();
+  const didCrossShard =
+    currentShardRow !== prevShardRow || currentShardCol !== prevShardCol;
+  prevShardRow = currentShardRow;
+  prevShardCol = currentShardCol;
+
+  const nextReady = sim.next_shard_ready();
+  if (nextReady) {
+    const nextDr = sim.next_shard_dr();
+    const nextDc = sim.next_shard_dc();
+    const key = `${nextDr},${nextDc}`;
+
+    if (nextGround === null || nextShardKey !== key) {
+      if (nextGround) {
+        disposeTerrainMesh(nextGround);
+        nextGround = null;
+        nextShardKey = null;
+      }
+
+      const nextHeightmap = getNextHeightmap(
+        HEIGHTMAP_GRID_SIZE,
+        HEIGHTMAP_GRID_SIZE
+      );
+
+      if (nextHeightmap) {
+        warnIfNextHeightmapLooksInvalid(nextHeightmap);
+        nextGround = createTerrainMeshFromGrid(nextHeightmap, sim.height_mult());
+        nextGround.position.x = nextDc * GROUND_SIZE;
+        nextGround.position.z = nextDr * GROUND_SIZE;
+        scene.add(nextGround);
+        nextShardKey = key;
+      }
+    }
+  }
+
+  if (didCrossShard) {
+    rebuildGroundMesh();
+    if (nextGround) {
+      disposeTerrainMesh(nextGround);
+      nextGround = null;
+      nextShardKey = null;
+    }
+  }
+
+  if (!nextReady && nextGround) {
+    disposeTerrainMesh(nextGround);
+    nextGround = null;
+    nextShardKey = null;
   }
 
   syncApcMesh(apcMesh, sim);
