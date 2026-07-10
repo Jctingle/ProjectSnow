@@ -11,6 +11,10 @@ use terrain::Terrain;
 use units::Units;
 
 const SHARD_TRIGGER_MARGIN: f32 = 12.0;
+// Crossing fires when the APC is within CROSS_BAND of the armed edge.
+// Must be > the 0.5 target-clamp margin in set_apc_target, or the
+// threshold is unreachable through legal input (the bug this fixes).
+const CROSS_BAND: f32 = 1.5;
 
 struct Shard {
     terrain: Terrain,
@@ -215,10 +219,10 @@ impl Sim {
         let crossing_direction = self.next.as_ref().and_then(|next| {
             let dc = next.col - self.current.col;
             let dr = next.row - self.current.row;
-            let crossed = (dc == 1 && ax > he)
-                || (dc == -1 && ax < -he)
-                || (dr == 1 && az > he)
-                || (dr == -1 && az < -he);
+            let crossed = (dc == 1 && ax > he - CROSS_BAND)
+                || (dc == -1 && ax < -(he - CROSS_BAND))
+                || (dr == 1 && az > he - CROSS_BAND)
+                || (dr == -1 && az < -(he - CROSS_BAND));
             if crossed { Some((dr, dc)) } else { None }
         });
 
@@ -229,6 +233,16 @@ impl Sim {
             self.apc.rebase(dx, dz);
             self.units.rebase(dx, dz);
             self.current = self.next.take().expect("next shard should exist during crossing");
+
+            // Rebased position lands slightly OUTSIDE the new shard's near edge
+            // (e.g. he - 1.5 - 2*he = -he - 1.5). Pull the APC just inside and
+            // halt it so it awaits a fresh order in the new shard's frame.
+            let he_new = self.current.terrain.half_extent();
+            let (ax, az) = self.apc.position_xz();
+            let cx = ax.clamp(-(he_new - 2.0), he_new - 2.0);
+            let cz = az.clamp(-(he_new - 2.0), he_new - 2.0);
+            self.apc.set_position(cx, cz);
+            self.apc.set_target(cx, cz);
         }
     }
 
@@ -399,15 +413,15 @@ mod tests {
         let he = sim.current.terrain.half_extent();
         let step = he * 2.0;
         let (unit_x_before, _) = first_unit_xz(&sim);
-        sim.apc.set_target(he + 12.0, 0.0);
+        sim.set_apc_target(he + 12.0, 0.0);
 
         let crossed = tick_until(&mut sim, 2_000, |s| s.current_shard_col() == 1);
         assert!(crossed, "APC never crossed into the next shard");
 
         let apc_x = sim.apc_x();
         assert!(
-            (apc_x + he).abs() <= 1.0,
-            "APC was not rebased near -half_extent: x={apc_x:.4} he={he:.4}"
+            apc_x > -he && apc_x < 0.0,
+            "APC should be rebased inside left bound after crossing: x={apc_x:.4} he={he:.4}"
         );
 
         let (unit_x_after, _) = first_unit_xz(&sim);
@@ -427,7 +441,7 @@ mod tests {
         assert!(armed, "next shard never armed");
 
         let he = sim.current.terrain.half_extent();
-        sim.apc.set_target(he + 12.0, 0.0);
+        sim.set_apc_target(he + 12.0, 0.0);
         let crossed = tick_until(&mut sim, 2_000, |s| s.current_shard_col() == 1);
         assert!(crossed, "APC never crossed into expected shard");
 

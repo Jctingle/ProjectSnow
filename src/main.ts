@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { getNextHeightmap, getSim, getSlopemap } from './entityStore';
+import { getNextHeightmap, getNextSlopemap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
@@ -10,7 +10,6 @@ import { createDevPanel, updateDeployedCount } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { applySlopeDebugColors, clearSlopeDebugColors } from './world/terrainDebug';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
-import { spawnInitialUnits } from './world/units';
 
 const scene    = new THREE.Scene();
 const aspect   = window.innerWidth / window.innerHeight;
@@ -117,7 +116,6 @@ scene.add(apcMesh);
 
 // units
 scene.add(instancedUnits);
-spawnInitialUnits();
 
 const regenButton = document.createElement('button');
 regenButton.textContent = 'Regenerate Terrain';
@@ -151,8 +149,13 @@ createDevPanel(
         ground,
         getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
       );
+      if (nextGround) {
+        const nextSlope = getNextSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+        if (nextSlope) applySlopeDebugColors(nextGround, nextSlope);
+      }
     } else {
       clearSlopeDebugColors(ground);
+      if (nextGround) clearSlopeDebugColors(nextGround);
     }
   },
   (recallActive) => {
@@ -213,6 +216,10 @@ function animate() {
       if (nextHeightmap) {
         warnIfNextHeightmapLooksInvalid(nextHeightmap);
         nextGround = createTerrainMeshFromGrid(nextHeightmap, sim.height_mult());
+        if (slopeDebugOn) {
+          const nextSlope = getNextSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+          if (nextSlope) applySlopeDebugColors(nextGround, nextSlope);
+        }
         nextGround.position.x = nextDc * GROUND_SIZE;
         nextGround.position.z = nextDr * GROUND_SIZE;
         scene.add(nextGround);

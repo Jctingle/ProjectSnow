@@ -1,7 +1,7 @@
 use crate::terrain::Terrain;
 use crate::units::UNIT_SPEED;
 
-const APC_SPEED: f32 = UNIT_SPEED / 2.0;
+const APC_SPEED: f32 = UNIT_SPEED * 1.5; // TESTING: 3x normal (was /2.0) - revert before balancing
 const APC_TOUCH_RADIUS: f32 = 0.3;
 const APC_TOUCH_RADIUS_SQ: f32 = APC_TOUCH_RADIUS * APC_TOUCH_RADIUS;
 
@@ -42,6 +42,11 @@ impl Apc {
     pub fn set_target(&mut self, x: f32, z: f32) {
         self.target_x = x;
         self.target_z = z;
+    }
+
+    pub fn set_position(&mut self, x: f32, z: f32) {
+        self.x = x;
+        self.z = z;
     }
 
     pub fn rebase(&mut self, dx: f32, dz: f32) {
