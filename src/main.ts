@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import './style.css';
 import { getNextHeightmap, getNextSlopemap, getSim, getSlopemap } from './entityStore';
-import { initCameraControls } from './input/camera';
+import { initCameraControls, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
@@ -23,8 +23,6 @@ const camera   = new THREE.OrthographicCamera(
   -depthRange,
   depthRange
 );
-camera.position.set(10, 10, 10);
-camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -42,6 +40,7 @@ await initSim(); // initSim already builds the cached heightmap
 const sim = getSim();
 
 initCameraControls(camera, renderer.domElement);
+updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
 
 // APC starts parked where it is
 sim.set_apc_target(sim.apc_x(), sim.apc_z());
@@ -108,7 +107,7 @@ function rebuildGroundMesh(): void {
   }
 }
 
-const updateInputRouter = initInputRouter(camera, renderer, scene);
+const inputRouter = initInputRouter(camera, renderer, scene);
 
 // APC
 const apcMesh = createApcMesh();
@@ -229,6 +228,7 @@ function animate() {
   }
 
   if (didCrossShard) {
+    inputRouter.clearDestinationMarker();
     rebuildGroundMesh();
     if (nextGround) {
       disposeTerrainMesh(nextGround);
@@ -244,7 +244,8 @@ function animate() {
   }
 
   syncApcMesh(apcMesh, sim);
-  updateInputRouter();
+  updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
+  inputRouter.update();
 
   if (now >= nextDeployedCountUpdateAtMs) {
     updateDeployedCount(sim.deployed_unit_count());

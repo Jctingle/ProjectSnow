@@ -298,6 +298,14 @@ impl Sim {
         self.apc.z()
     }
 
+    pub fn apc_target_x(&self) -> f32 {
+        self.apc.target_x()
+    }
+
+    pub fn apc_target_z(&self) -> f32 {
+        self.apc.target_z()
+    }
+
     pub fn set_apc_target(&mut self, x: f32, z: f32) {
         let he = self.current.terrain.half_extent();
         let margin = 0.5;

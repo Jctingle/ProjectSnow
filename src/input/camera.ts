@@ -4,9 +4,26 @@ import { GROUND_SIZE } from '../sim/config';
 const MIN_VIEW_SIZE = 5;
 const MAX_VIEW_SIZE = GROUND_SIZE * 1.25;
 const ZOOM_SENSITIVITY = 0.001;
+const isoOffset = new THREE.Vector3(10, 10, 10);
+let panOffset = new THREE.Vector3(0, 0, 0);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+export function updateCameraFollow(
+  camera: THREE.OrthographicCamera,
+  ax: number,
+  ay: number,
+  az: number,
+): void {
+  camera.position.set(
+    ax + panOffset.x + isoOffset.x,
+    ay + panOffset.y + isoOffset.y,
+    az + panOffset.z + isoOffset.z,
+  );
+  camera.lookAt(ax + panOffset.x, ay, az + panOffset.z);
+  camera.updateMatrixWorld();
 }
 
 export function initCameraControls(
@@ -48,9 +65,8 @@ export function initCameraControls(
     forward.y = 0;
     forward.normalize();
 
-    camera.position.addScaledVector(right, -dx * worldPerPixel);
-    camera.position.addScaledVector(forward, dy * worldPerPixel * Math.SQRT2);
-    camera.updateMatrixWorld();
+    panOffset.addScaledVector(right, -dx * worldPerPixel);
+    panOffset.addScaledVector(forward, dy * worldPerPixel * Math.SQRT2);
   });
 
   const endPan = (): void => {
@@ -78,4 +94,10 @@ export function initCameraControls(
     },
     { passive: false },
   );
+
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.code === 'Home' || event.code === 'KeyF') {
+      panOffset.set(0, 0, 0);
+    }
+  });
 }

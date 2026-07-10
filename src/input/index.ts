@@ -7,18 +7,28 @@ import { attachKeyboardShortcuts } from './keyboard';
 export { gameMode } from './gameMode';
 export type { GameMode } from './gameMode';
 
+export type InputRouterController = {
+  update(): void;
+  clearDestinationMarker(): void;
+};
+
 export function initInputRouter(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
-): () => void {
+): InputRouterController {
   const destinationMarker = createDestinationMarkerController(scene);
 
   attachClickSelect(camera, renderer);
   attachApcMoveCommand(camera, renderer, destinationMarker);
   attachKeyboardShortcuts();
 
-  return () => {
-    destinationMarker.update();
+  return {
+    update: () => {
+      destinationMarker.update();
+    },
+    clearDestinationMarker: () => {
+      destinationMarker.clear();
+    },
   };
 }

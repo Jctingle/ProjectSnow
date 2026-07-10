@@ -23,7 +23,14 @@ export function attachApcMoveCommand(
       return;
     }
 
-    destinationMarker.showAt(worldPoint);
-    getSim().set_apc_target(worldPoint.x, worldPoint.z);
+    const sim = getSim();
+    sim.set_apc_target(worldPoint.x, worldPoint.z);
+
+    const markerPoint = new THREE.Vector3(
+      sim.apc_target_x(),
+      worldPoint.y,
+      sim.apc_target_z(),
+    );
+    destinationMarker.showAt(markerPoint);
   });
 }

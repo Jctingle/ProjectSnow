@@ -64,12 +64,20 @@ impl Apc {
         self.x
     }
 
+    pub fn target_x(&self) -> f32 {
+        self.target_x
+    }
+
     pub fn y(&self) -> f32 {
         self.y
     }
 
     pub fn z(&self) -> f32 {
         self.z
+    }
+
+    pub fn target_z(&self) -> f32 {
+        self.target_z
     }
 
     pub fn touch_radius(&self) -> f32 {
