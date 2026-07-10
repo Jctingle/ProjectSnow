@@ -6,7 +6,7 @@ import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
-import { createDevPanel } from './ui/devPanel';
+import { createDevPanel, updateDeployedCount } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
 import { applySlopeDebugColors, clearSlopeDebugColors } from './world/terrainDebug';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
@@ -154,13 +154,23 @@ createDevPanel(
     } else {
       clearSlopeDebugColors(ground);
     }
+  },
+  (recallActive) => {
+    if (recallActive) {
+      sim.set_unit_recall(true);
+    } else {
+      sim.set_unit_recall(false);
+      sim.deploy_all_units();
+    }
   }
 );
+updateDeployedCount(sim.deployed_unit_count());
 
 // sim loop
 const SIM_RATE = 1 / 60;
 let lastTime   = performance.now();
 let accumulator = 0;
+let nextDeployedCountUpdateAtMs = 0;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -228,6 +238,11 @@ function animate() {
 
   syncApcMesh(apcMesh, sim);
   updateInputRouter();
+
+  if (now >= nextDeployedCountUpdateAtMs) {
+    updateDeployedCount(sim.deployed_unit_count());
+    nextDeployedCountUpdateAtMs = now + 250;
+  }
 
   syncInstancedMesh();
   renderer.render(scene, camera);

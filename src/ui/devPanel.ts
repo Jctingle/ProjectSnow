@@ -26,11 +26,36 @@ const FIELDS: FieldConfig[] = [
   { label: 'TIER_HEIGHT_SCALE', min: 0.1, max: 1.5, step: 0.01, default: TIER_HEIGHT_SCALE, set: (sim, v) => sim.set_tier_height_scale(v) },
 ];
 
+let recallCheckboxRef: HTMLInputElement | null = null;
+let onRecallToggleRef: ((recallActive: boolean) => void) | null = null;
+let deployedCountSpanRef: HTMLSpanElement | null = null;
+let recallActiveState = false;
+
+function setRecallActive(recallActive: boolean): void {
+  recallActiveState = recallActive;
+  if (recallCheckboxRef) {
+    recallCheckboxRef.checked = recallActive;
+  }
+  onRecallToggleRef?.(recallActive);
+}
+
+export function toggleRecallUnits(): void {
+  setRecallActive(!recallActiveState);
+}
+
+export function updateDeployedCount(n: number): void {
+  if (!deployedCountSpanRef) return;
+  deployedCountSpanRef.textContent = String(n);
+}
+
 export function createDevPanel(
   sim: Sim,
   onChange: () => void,
-  onSlopeDebugToggle?: (checked: boolean) => void
+  onSlopeDebugToggle?: (checked: boolean) => void,
+  onRecallToggle?: (recallActive: boolean) => void
 ): void {
+  onRecallToggleRef = onRecallToggle ?? null;
+
   const panel = document.createElement('div');
   panel.style.cssText =
     'position:fixed; top:90px; right:12px; z-index:10; display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:12px;';
@@ -54,10 +79,37 @@ export function createDevPanel(
   slopeLabel.textContent = 'Show slope debug';
   slopeRow.appendChild(slopeCheckbox);
   slopeRow.appendChild(slopeLabel);
+
+  const recallCheckbox = document.createElement('input');
+  recallCheckbox.type = 'checkbox';
+  recallCheckbox.checked = recallActiveState;
+  const recallLabel = document.createElement('label');
+  recallLabel.textContent = 'Recall units';
+  slopeRow.appendChild(recallCheckbox);
+  slopeRow.appendChild(recallLabel);
+
   panel.appendChild(slopeRow);
+
+  recallCheckboxRef = recallCheckbox;
+
+  const deployedRow = document.createElement('div');
+  deployedRow.style.cssText =
+    'display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const deployedLabel = document.createElement('span');
+  deployedLabel.textContent = 'Deployed units';
+  const deployedValue = document.createElement('span');
+  deployedValue.textContent = '0';
+  deployedRow.appendChild(deployedLabel);
+  deployedRow.appendChild(deployedValue);
+  panel.appendChild(deployedRow);
+  deployedCountSpanRef = deployedValue;
 
   slopeCheckbox.addEventListener('change', () => {
     onSlopeDebugToggle?.(slopeCheckbox.checked);
+  });
+
+  recallCheckbox.addEventListener('change', () => {
+    setRecallActive(recallCheckbox.checked);
   });
 
   for (const field of FIELDS) {
