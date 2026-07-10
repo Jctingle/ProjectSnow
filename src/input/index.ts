@@ -9,7 +9,7 @@ export type { GameMode } from './gameMode';
 
 export type InputRouterController = {
   update(): void;
-  clearDestinationMarker(): void;
+  shiftDestinationMarker(dx: number, dz: number): void;
 };
 
 export function initInputRouter(
@@ -27,8 +27,8 @@ export function initInputRouter(
     update: () => {
       destinationMarker.update();
     },
-    clearDestinationMarker: () => {
-      destinationMarker.clear();
+    shiftDestinationMarker: (dx: number, dz: number) => {
+      destinationMarker.shiftBy(dx, dz);
     },
   };
 }

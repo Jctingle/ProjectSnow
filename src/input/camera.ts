@@ -6,6 +6,7 @@ const MAX_VIEW_SIZE = GROUND_SIZE * 1.25;
 const ZOOM_SENSITIVITY = 0.001;
 const isoOffset = new THREE.Vector3(10, 10, 10);
 let panOffset = new THREE.Vector3(0, 0, 0);
+let cameraFollowEnabled = true;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -24,6 +25,10 @@ export function updateCameraFollow(
   );
   camera.lookAt(ax + panOffset.x, ay, az + panOffset.z);
   camera.updateMatrixWorld();
+}
+
+export function setCameraFollowEnabled(enabled: boolean): void {
+  cameraFollowEnabled = enabled;
 }
 
 export function initCameraControls(
@@ -65,8 +70,16 @@ export function initCameraControls(
     forward.y = 0;
     forward.normalize();
 
-    panOffset.addScaledVector(right, -dx * worldPerPixel);
-    panOffset.addScaledVector(forward, dy * worldPerPixel * Math.SQRT2);
+    const panDx = -dx * worldPerPixel;
+    const panDz = dy * worldPerPixel * Math.SQRT2;
+    panOffset.addScaledVector(right, panDx);
+    panOffset.addScaledVector(forward, panDz);
+
+    if (!cameraFollowEnabled) {
+      camera.position.addScaledVector(right, panDx);
+      camera.position.addScaledVector(forward, panDz);
+      camera.updateMatrixWorld();
+    }
   });
 
   const endPan = (): void => {

@@ -11,10 +11,6 @@ use terrain::Terrain;
 use units::Units;
 
 const SHARD_TRIGGER_MARGIN: f32 = 12.0;
-// Crossing fires when the APC is within CROSS_BAND of the armed edge.
-// Must be > the 0.5 target-clamp margin in set_apc_target, or the
-// threshold is unreachable through legal input (the bug this fixes).
-const CROSS_BAND: f32 = 1.5;
 
 struct Shard {
     terrain: Terrain,
@@ -219,10 +215,14 @@ impl Sim {
         let crossing_direction = self.next.as_ref().and_then(|next| {
             let dc = next.col - self.current.col;
             let dr = next.row - self.current.row;
-            let crossed = (dc == 1 && ax > he - CROSS_BAND)
-                || (dc == -1 && ax < -(he - CROSS_BAND))
-                || (dr == 1 && az > he - CROSS_BAND)
-                || (dr == -1 && az < -(he - CROSS_BAND));
+            // Crossing fires only once the APC is physically past the border,
+            // so rebase lands inside the new shard (-he + epsilon) and cannot
+            // immediately retrigger reverse crossing. Reachability now comes
+            // from extended targeting (reach = 3*he), not threshold shrinking.
+            let crossed = (dc == 1 && ax > he)
+                || (dc == -1 && ax < -he)
+                || (dr == 1 && az > he)
+                || (dr == -1 && az < -he);
             if crossed { Some((dr, dc)) } else { None }
         });
 
@@ -232,17 +232,11 @@ impl Sim {
             let dz = -(dr as f32) * step;
             self.apc.rebase(dx, dz);
             self.units.rebase(dx, dz);
-            self.current = self.next.take().expect("next shard should exist during crossing");
-
-            // Rebased position lands slightly OUTSIDE the new shard's near edge
-            // (e.g. he - 1.5 - 2*he = -he - 1.5). Pull the APC just inside and
-            // halt it so it awaits a fresh order in the new shard's frame.
-            let he_new = self.current.terrain.half_extent();
-            let (ax, az) = self.apc.position_xz();
-            let cx = ax.clamp(-(he_new - 2.0), he_new - 2.0);
-            let cz = az.clamp(-(he_new - 2.0), he_new - 2.0);
-            self.apc.set_position(cx, cz);
-            self.apc.set_target(cx, cz);
+            let old = std::mem::replace(
+                &mut self.current,
+                self.next.take().expect("next shard should exist during crossing"),
+            );
+            self.next = Some(old);
         }
     }
 
@@ -308,11 +302,23 @@ impl Sim {
 
     pub fn set_apc_target(&mut self, x: f32, z: f32) {
         let he = self.current.terrain.half_extent();
-        let margin = 0.5;
-        self.apc.set_target(
-            x.clamp(-(he - margin), he - margin),
-            z.clamp(-(he - margin), he - margin),
-        );
+        let m = 0.5;
+        let reach = 3.0 * he - m;
+        let mut tx = x.clamp(-reach, reach);
+        let mut tz = z.clamp(-reach, reach);
+        // Diagonal guard: crossing is cardinal-only. If the target exceeds
+        // the current shard on BOTH axes, pull the lesser-overshoot axis
+        // back inside so the path resolves to a cardinal neighbor.
+        let ox = (tx.abs() - he).max(0.0);
+        let oz = (tz.abs() - he).max(0.0);
+        if ox > 0.0 && oz > 0.0 {
+            if ox >= oz {
+                tz = tz.clamp(-(he - m), he - m);
+            } else {
+                tx = tx.clamp(-(he - m), he - m);
+            }
+        }
+        self.apc.set_target(tx, tz);
     }
 
     pub fn apc_touch_radius(&self) -> f32 {
@@ -402,8 +408,13 @@ mod tests {
         let boarded = tick_until(&mut sim, 10_000, |s| s.deployed_unit_count() == 0);
         assert!(boarded, "units never fully boarded under recall");
 
-        let armed = tick_until(&mut sim, 500, |s| s.next_shard_ready());
-        assert!(armed, "next shard failed to arm after all units were boarded");
+        let progressed = tick_until(&mut sim, 500, |s| {
+            s.next_shard_ready() || s.current_shard_row() != 0 || s.current_shard_col() != 0
+        });
+        assert!(
+            progressed,
+            "shard handoff failed to progress after all units were boarded"
+        );
     }
 
     #[test]
@@ -421,15 +432,35 @@ mod tests {
         let he = sim.current.terrain.half_extent();
         let step = he * 2.0;
         let (unit_x_before, _) = first_unit_xz(&sim);
-        sim.set_apc_target(he + 12.0, 0.0);
+        let target_world_x = he + 30.0;
+        let target_world_z = 10.0;
+        sim.set_apc_target(target_world_x, target_world_z);
 
         let crossed = tick_until(&mut sim, 2_000, |s| s.current_shard_col() == 1);
         assert!(crossed, "APC never crossed into the next shard");
+        assert!(sim.next_shard_ready(), "back-neighbor shard should remain armed after crossing");
+        assert_eq!(sim.next_shard_dr(), 0);
+        assert_eq!(sim.next_shard_dc(), -1);
 
-        let apc_x = sim.apc_x();
+        let apc_x_after_cross = sim.apc_x();
         assert!(
-            apc_x > -he && apc_x < 0.0,
-            "APC should be rebased inside left bound after crossing: x={apc_x:.4} he={he:.4}"
+            apc_x_after_cross > -he - 0.1 && apc_x_after_cross < 0.0,
+            "APC should land just past -half_extent after strict-threshold crossing: x={apc_x_after_cross:.4} he={he:.4}"
+        );
+
+        let expected_x = target_world_x - step;
+        let expected_z = target_world_z;
+        let arrive_radius_sq = (sim.apc_touch_radius() + 0.05).powi(2);
+        let arrived = tick_until(&mut sim, 2_000, |s| {
+            let dx = s.apc_x() - expected_x;
+            let dz = s.apc_z() - expected_z;
+            (dx * dx + dz * dz) <= arrive_radius_sq
+        });
+        assert!(
+            arrived,
+            "APC did not continue to rebased target after crossing: x={:.4} z={:.4} expected=({expected_x:.4},{expected_z:.4})",
+            sim.apc_x(),
+            sim.apc_z(),
         );
 
         let (unit_x_after, _) = first_unit_xz(&sim);
@@ -449,13 +480,64 @@ mod tests {
         assert!(armed, "next shard never armed");
 
         let he = sim.current.terrain.half_extent();
-        sim.set_apc_target(he + 12.0, 0.0);
+        let target_world_x = he + 30.0;
+        let target_world_z = 10.0;
+        sim.set_apc_target(target_world_x, target_world_z);
         let crossed = tick_until(&mut sim, 2_000, |s| s.current_shard_col() == 1);
         assert!(crossed, "APC never crossed into expected shard");
+        assert!(sim.next_shard_ready(), "back-neighbor shard should remain armed after crossing");
+        assert_eq!(sim.next_shard_dr(), 0);
+        assert_eq!(sim.next_shard_dc(), -1);
+
+        let apc_x_after_cross = sim.apc_x();
+        assert!(
+            apc_x_after_cross > -he - 0.1 && apc_x_after_cross < 0.0,
+            "APC should land just past -half_extent after strict-threshold crossing: x={apc_x_after_cross:.4} he={he:.4}"
+        );
+
+        let expected_x = target_world_x - (he * 2.0);
+        let expected_z = target_world_z;
+        let arrive_radius_sq = (sim.apc_touch_radius() + 0.05).powi(2);
+        let arrived = tick_until(&mut sim, 2_000, |s| {
+            let dx = s.apc_x() - expected_x;
+            let dz = s.apc_z() - expected_z;
+            (dx * dx + dz * dz) <= arrive_radius_sq
+        });
+        assert!(
+            arrived,
+            "APC did not arrive at rebased target after crossing: x={:.4} z={:.4} expected=({expected_x:.4},{expected_z:.4})",
+            sim.apc_x(),
+            sim.apc_z(),
+        );
 
         let h = sim.sample_height(sim.apc_x() as f64, sim.apc_z() as f64);
         assert!(h.is_finite(), "height at APC became non-finite after crossing");
         assert_eq!(sim.current_shard_row(), 0);
         assert_eq!(sim.current_shard_col(), 1);
+    }
+
+    #[test]
+    fn crossing_never_oscillates() {
+        let mut sim = build_sim(8);
+        let he = sim.current.terrain.half_extent();
+        sim.set_apc_target(he + 30.0, 10.0);
+
+        let mut crossings = 0;
+        let mut prev_col = sim.current_shard_col();
+        for _ in 0..20_000 {
+            sim.tick(1.0 / 60.0);
+            let col = sim.current_shard_col();
+            if col != prev_col {
+                crossings += 1;
+                prev_col = col;
+            }
+        }
+
+        assert_eq!(
+            crossings, 1,
+            "shard col changed {crossings} times; must cross exactly once"
+        );
+        assert_eq!(sim.current_shard_col(), 1);
+        assert!((sim.apc_x() - (-he + 30.0)).abs() < 1.0);
     }
 }

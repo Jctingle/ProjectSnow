@@ -52,7 +52,8 @@ export function createDevPanel(
   sim: Sim,
   onChange: () => void,
   onSlopeDebugToggle?: (checked: boolean) => void,
-  onRecallToggle?: (recallActive: boolean) => void
+  onRecallToggle?: (recallActive: boolean) => void,
+  onCameraFollowToggle?: (followActive: boolean) => void
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
 
@@ -88,6 +89,14 @@ export function createDevPanel(
   slopeRow.appendChild(recallCheckbox);
   slopeRow.appendChild(recallLabel);
 
+  const cameraFollowCheckbox = document.createElement('input');
+  cameraFollowCheckbox.type = 'checkbox';
+  cameraFollowCheckbox.checked = true;
+  const cameraFollowLabel = document.createElement('label');
+  cameraFollowLabel.textContent = 'Camera follows APC';
+  slopeRow.appendChild(cameraFollowCheckbox);
+  slopeRow.appendChild(cameraFollowLabel);
+
   panel.appendChild(slopeRow);
 
   recallCheckboxRef = recallCheckbox;
@@ -110,6 +119,10 @@ export function createDevPanel(
 
   recallCheckbox.addEventListener('change', () => {
     setRecallActive(recallCheckbox.checked);
+  });
+
+  cameraFollowCheckbox.addEventListener('change', () => {
+    onCameraFollowToggle?.(cameraFollowCheckbox.checked);
   });
 
   for (const field of FIELDS) {

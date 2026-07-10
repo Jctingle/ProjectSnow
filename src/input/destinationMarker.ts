@@ -10,6 +10,7 @@ type DebugMarkerState = {
 export type DestinationMarkerController = {
   showAt(worldPoint: THREE.Vector3): void;
   clear(): void;
+  shiftBy(dx: number, dz: number): void;
   update(): void;
 };
 
@@ -63,9 +64,21 @@ export function createDestinationMarkerController(
     }
   };
 
+  const shiftBy = (dx: number, dz: number): void => {
+    if (!debugMarkerState) {
+      return;
+    }
+
+    debugMarkerState.marker.position.x += dx;
+    debugMarkerState.marker.position.z += dz;
+    debugMarkerState.targetX += dx;
+    debugMarkerState.targetZ += dz;
+  };
+
   return {
     showAt,
     clear,
+    shiftBy,
     update,
   };
 }

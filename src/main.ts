@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import './style.css';
 import { getNextHeightmap, getNextSlopemap, getSim, getSlopemap } from './entityStore';
-import { initCameraControls, updateCameraFollow } from './input/camera';
+import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
@@ -54,6 +54,7 @@ let nextShardKey: string | null = null;
 let prevShardRow = sim.current_shard_row();
 let prevShardCol = sim.current_shard_col();
 let hasRunNextHeightmapSanityCheck = false;
+let cameraFollowOn = true;
 
 function disposeTerrainMesh(mesh: THREE.Mesh): void {
   scene.remove(mesh);
@@ -164,6 +165,10 @@ createDevPanel(
       sim.set_unit_recall(false);
       sim.deploy_all_units();
     }
+  },
+  (followActive) => {
+    cameraFollowOn = followActive;
+    setCameraFollowEnabled(followActive);
   }
 );
 updateDeployedCount(sim.deployed_unit_count());
@@ -187,15 +192,49 @@ function animate() {
     accumulator -= SIM_RATE;
   }
 
+  const prevBeforeUpdateRow = prevShardRow;
+  const prevBeforeUpdateCol = prevShardCol;
   const currentShardRow = sim.current_shard_row();
   const currentShardCol = sim.current_shard_col();
   const didCrossShard =
-    currentShardRow !== prevShardRow || currentShardCol !== prevShardCol;
+    currentShardRow !== prevBeforeUpdateRow || currentShardCol !== prevBeforeUpdateCol;
+  const crossDr = currentShardRow - prevBeforeUpdateRow;
+  const crossDc = currentShardCol - prevBeforeUpdateCol;
+  const shiftX = -(currentShardCol - prevBeforeUpdateCol) * GROUND_SIZE;
+  const shiftZ = -(currentShardRow - prevBeforeUpdateRow) * GROUND_SIZE;
   prevShardRow = currentShardRow;
   prevShardCol = currentShardCol;
 
+  let skipNextGroundSync = false;
+  if (didCrossShard) {
+    inputRouter.shiftDestinationMarker(shiftX, shiftZ);
+    if (!cameraFollowOn) {
+      camera.position.x += shiftX;
+      camera.position.z += shiftZ;
+      camera.updateMatrixWorld();
+    }
+
+    // World rebased: shift both meshes into the new frame, then promote
+    // the preview mesh to current and keep the old current as the back neighbor.
+    ground.position.x += shiftX;
+    ground.position.z += shiftZ;
+    if (nextGround) {
+      nextGround.position.x += shiftX;
+      nextGround.position.z += shiftZ;
+      const promoted = nextGround;
+      nextGround = ground;
+      ground = promoted;
+      nextShardKey = `${-crossDr},${-crossDc}`;
+    } else {
+      rebuildGroundMesh();
+      nextGround = null;
+      nextShardKey = null;
+      skipNextGroundSync = true;
+    }
+  }
+
   const nextReady = sim.next_shard_ready();
-  if (nextReady) {
+  if (!skipNextGroundSync && nextReady) {
     const nextDr = sim.next_shard_dr();
     const nextDc = sim.next_shard_dc();
     const key = `${nextDr},${nextDc}`;
@@ -227,16 +266,6 @@ function animate() {
     }
   }
 
-  if (didCrossShard) {
-    inputRouter.clearDestinationMarker();
-    rebuildGroundMesh();
-    if (nextGround) {
-      disposeTerrainMesh(nextGround);
-      nextGround = null;
-      nextShardKey = null;
-    }
-  }
-
   if (!nextReady && nextGround) {
     disposeTerrainMesh(nextGround);
     nextGround = null;
@@ -244,7 +273,9 @@ function animate() {
   }
 
   syncApcMesh(apcMesh, sim);
-  updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
+  if (cameraFollowOn) {
+    updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
+  }
   inputRouter.update();
 
   if (now >= nextDeployedCountUpdateAtMs) {
