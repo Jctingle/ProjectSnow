@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  GRADE_MAX_PERCENT,
   GROUND_SIZE,
   HEIGHTMAP_GRID_SIZE,
 } from '../sim/config';
@@ -10,8 +11,6 @@ import {
 // actual slope range far better than degrees/SLOPE_HARD_DEG did - that
 // mapping saturated almost the whole mesh red, since most slopes here
 // exceed 28 degrees long before they're actually unclimbable.
-const GRADE_MAX_PERCENT = 100;
-
 const GRADIENT_B_STOPS: [number, number, number][] = [
   [0, 0, 1], // blue   t=0.00
   [0, 1, 1], // cyan   t=0.25
@@ -71,7 +70,14 @@ export function applySlopeDebugColors(
     colors[i * 3 + 2] = b;
   }
 
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const existing = geometry.getAttribute('color') as
+    THREE.BufferAttribute | undefined;
+  if (existing && existing.count === posAttr.count) {
+    (existing.array as Float32Array).set(colors);
+    existing.needsUpdate = true;
+  } else {
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  }
   const material = mesh.material as THREE.MeshStandardMaterial;
   material.vertexColors = true;
   material.needsUpdate = true;

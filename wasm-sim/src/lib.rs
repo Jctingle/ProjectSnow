@@ -70,7 +70,7 @@ impl Sim {
         seed_y: f64,
         scale: f64,
         height_mult: f32,
-        shard_half: f32,
+        unit_wander_radius: f32,
         terrain_half_extent: f32,
         crag_strength: f32,
         crag_freq: f64,
@@ -104,7 +104,7 @@ impl Sim {
             current,
             next: None,
             world_seed: noise_seed,
-            units: Units::new(max_units, shard_half),
+            units: Units::new(max_units, unit_wander_radius),
             apc: Apc::new(),
             rng: Rng::new(rng_seed),
         }
@@ -140,26 +140,32 @@ impl Sim {
 
     pub fn set_height_mult(&mut self, v: f32) {
         self.current.terrain.set_height_mult(v);
+        self.next = None;
     }
 
     pub fn set_crag_strength(&mut self, v: f32) {
         self.current.terrain.set_crag_strength(v);
+        self.next = None;
     }
 
     pub fn set_crag_freq(&mut self, v: f64) {
         self.current.terrain.set_crag_freq(v);
+        self.next = None;
     }
 
     pub fn set_sweep_scale(&mut self, v: f64) {
         self.current.terrain.set_sweep_scale(v);
+        self.next = None;
     }
 
     pub fn set_sweep_amp(&mut self, v: f32) {
         self.current.terrain.set_sweep_amp(v);
+        self.next = None;
     }
 
     pub fn set_tier_height_scale(&mut self, v: f32) {
         self.current.terrain.set_tier_height_scale(v);
+        self.next = None;
     }
 
     pub fn spawn_unit(&mut self, x: f32, z: f32) -> i32 {
@@ -272,8 +278,8 @@ impl Sim {
         self.current.terrain.zone_at(x, z)
     }
 
-    pub fn steepness_at(&self, x: f32, z: f32) -> f32 {
-        self.current.terrain.steepness_at(x, z)
+    pub fn slope_degrees_at(&self, x: f32, z: f32) -> f32 {
+        self.current.terrain.slope_degrees_at(x, z)
     }
 
     pub fn is_structure_viable(&self, x: f32, z: f32) -> bool {

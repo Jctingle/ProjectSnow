@@ -21,6 +21,12 @@ export const SCALE = 0.09;
 // Higher values make hills and valleys taller/deeper; lower values flatten terrain.
 export const HEIGHT_MULT = 2.2200;
 
+// Upper bound on RAW (pre-height_mult) terrain height. Derived from
+// the Rust-side generation caps: TIER_MAX (9.0) * max tier_height_scale
+// plus sweep amplitude headroom. Used to size the raycast bracket -
+// keep in sync if TIER_MAX or tier scaling changes in terrain/mod.rs.
+export const MAX_RAW_TERRAIN_HEIGHT = 10.0;
+
 // Warps each seed's influence boundary into irregular crag shapes.
 // Higher values produce rougher, more jagged silhouettes; lower values stay rounder.
 export const CRAG_STRENGTH = .45;
@@ -47,10 +53,9 @@ export const SWEEP_AMP = 2.7200;
 //optimal value : .268
 export const TIER_HEIGHT_SCALE = 0.220;
 
-// Half-width of the simulation shard used for gameplay bounds around origin.
-// Larger values allow agents/systems to roam farther; smaller values constrain
-// activity closer to the center.
-export const SHARD_HALF = 8;
+// Half-width of the square region around the APC that wandering units
+// pick random targets within.
+export const UNIT_WANDER_RADIUS = 8;
 
 // Total terrain width/depth in world units.
 // Increasing expands playable terrain area; decreasing shrinks it.
@@ -73,14 +78,17 @@ export const GROUND_SEGMENTS = Math.round(GROUND_SIZE / SEGMENT_DENSITY);
 // sit exactly on the visible ground instead of the underlying noise.
 export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
 
-// Below this, terrain reads as easily climbable (tracked-vehicle-in-snow
-// traction limits). Also feeds future Heat-cost-by-steepness/cliff logic -
-// keep in sync with any gameplay use of slope_degrees_at.
+// Reserved for future Heat-cost and cliff/pathfinding thresholds.
+// Not used by the current debug overlay.
 export const SLOPE_EASY_DEG = 15;
 
-// At or above this, terrain approaches tracked-vehicle max slope in snow -
-// treat as effectively cliff-equivalent for debug coloring purposes.
+// Reserved for future Heat-cost and cliff/pathfinding thresholds.
+// Not used by the current debug overlay.
 export const SLOPE_HARD_DEG = 28;
+
+// Gradient B's upper bound for slope debug coloring, in percent grade
+// (rise/run * 100). 100% grade == 45 degrees.
+export const GRADE_MAX_PERCENT = 100;
 
 // Number of units spawned during initial setup.
 // Higher values increase scene/simulation load; lower values lighten CPU/GPU cost.

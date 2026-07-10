@@ -16,12 +16,12 @@ pub struct Units {
     target_z: Vec<f32>,
     count: usize,
     max_units: usize,
-    shard_half: f32,
+    wander_radius: f32,
     recall_active: bool,
 }
 
 impl Units {
-    pub fn new(max_units: usize, shard_half: f32) -> Self {
+    pub fn new(max_units: usize, wander_radius: f32) -> Self {
         Self {
             positions: vec![0.0; max_units * 3],
             states: vec![SEEK_APC; max_units],
@@ -29,17 +29,13 @@ impl Units {
             target_z: vec![0.0; max_units],
             count: 0,
             max_units,
-            shard_half,
+            wander_radius,
             recall_active: false,
         }
     }
 
     pub fn set_recall(&mut self, active: bool) {
         self.recall_active = active;
-    }
-
-    pub fn recall_active(&self) -> bool {
-        self.recall_active
     }
 
     pub fn deployed_count(&self) -> usize {
@@ -120,8 +116,8 @@ impl Units {
                     if self.recall_active {
                         *state = CREWED;
                     } else {
-                        *tx = rng.next_signed() * self.shard_half;
-                        *tz = rng.next_signed() * self.shard_half;
+                        *tx = rng.next_signed() * self.wander_radius;
+                        *tz = rng.next_signed() * self.wander_radius;
                         *state = SEEK_RANDOM;
                     }
                 } else {
@@ -177,7 +173,6 @@ mod tests {
         assert_eq!(units.deployed_count(), 3);
 
         units.set_recall(true);
-        assert!(units.recall_active());
 
         let delta = 1.0 / 60.0;
 

@@ -328,10 +328,6 @@ impl Terrain {
         (dhx * dhx + dhz * dhz).sqrt() / EPS
     }
 
-    pub fn steepness_at(&self, x: f32, z: f32) -> f32 {
-        self.gradient_at(x, z)
-    }
-
     /// Slope in degrees at an arbitrary world-space point. This is the
     /// durable, multi-purpose slope query - gameplay systems (Heat cost
     /// per movement, cliff/connectivity checks) should call THIS, not the

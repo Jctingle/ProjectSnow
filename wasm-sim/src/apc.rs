@@ -44,11 +44,6 @@ impl Apc {
         self.target_z = z;
     }
 
-    pub fn set_position(&mut self, x: f32, z: f32) {
-        self.x = x;
-        self.z = z;
-    }
-
     pub fn rebase(&mut self, dx: f32, dz: f32) {
         self.x += dx;
         self.z += dz;

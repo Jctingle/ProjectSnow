@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getSim } from '../entityStore';
+import { MAX_RAW_TERRAIN_HEIGHT } from '../sim/config';
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -32,8 +33,8 @@ export function getGroundClickPoint(
 
   const f = (t: number) => (origin.y + dir.y * t) - heightAt(t);
 
-  const HIGH = 40;
-  const LOW = -40;
+  const HIGH = MAX_RAW_TERRAIN_HEIGHT * sim.height_mult();
+  const LOW = -HIGH;
   let t0 = (HIGH - origin.y) / dir.y;
   let t1 = (LOW - origin.y) / dir.y;
   if (t0 > t1) [t0, t1] = [t1, t0];
