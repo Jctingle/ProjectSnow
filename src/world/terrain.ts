@@ -16,6 +16,7 @@ function createBaseTerrainMesh(): THREE.Mesh {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const ground = new THREE.Mesh(geometry, material);
   ground.rotation.x = -Math.PI / 2;
+  ground.userData.isTerrainMesh = true;
   return ground;
 }
 

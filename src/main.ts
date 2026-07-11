@@ -224,8 +224,11 @@ function animate() {
     const promoted = neighborMeshes.get(crossKey);
     if (promoted) {
       neighborMeshes.delete(crossKey);
-      neighborMeshes.set(keyOf(-crossDr, -crossDc), ground);
-      ground = promoted;
+
+      // 1. Re-key REMAINING neighbors first — old ground is not yet inserted.
+      //    Inserting it first would clobber the existing mesh at the back key
+      //    without disposal (orphaned mesh overlay) and then double-shift it
+      //    out of ring, disposing the mesh that should be the back neighbor.
       const rekeyed = new Map<string, THREE.Mesh>();
       for (const [key, mesh] of neighborMeshes) {
         const [dr, dc] = key.split(',').map(Number);
@@ -237,6 +240,13 @@ function animate() {
           disposeTerrainMesh(mesh);
         }
       }
+
+      // 2. Now place old ground as back neighbor. Safe: the only pre-cross key
+      //    that re-keys to (-crossDr,-crossDc) would be (0,0), which is never
+      //    in the map, so this slot is guaranteed empty after step 1.
+      rekeyed.set(keyOf(-crossDr, -crossDc), ground);
+      ground = promoted;
+
       neighborMeshes.clear();
       for (const [k, m] of rekeyed) neighborMeshes.set(k, m);
       ground.position.set(0, 0, 0);
@@ -272,6 +282,18 @@ function animate() {
     } else if (!ready && mesh) {
       disposeTerrainMesh(mesh);
       neighborMeshes.delete(key);
+    }
+  }
+
+  if (import.meta.env.DEV) {
+    const terrainCount = scene.children.filter(
+      (c) => c !== ground && (c as THREE.Mesh).userData?.isTerrainMesh
+    ).length;
+    if (terrainCount !== neighborMeshes.size) {
+      console.error(
+        `[ring] mesh/map desync: ${terrainCount} terrain meshes in scene, ` +
+        `${neighborMeshes.size} tracked`
+      );
     }
   }
 
