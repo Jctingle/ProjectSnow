@@ -98,20 +98,24 @@ export function getSlopemap(width: number, height: number): Float32Array {
   return new Float32Array(memory.buffer, getSim().slopemap_ptr(), width * height);
 }
 
-export function getNextHeightmap(
+export function getNeighborHeightmap(
+  dr: number,
+  dc: number,
   width: number,
   height: number
 ): Float32Array | null {
-  const ptr = getSim().next_heightmap_ptr();
+  const ptr = getSim().neighbor_heightmap_ptr(dr, dc);
   if (ptr === 0) return null;
   return new Float32Array(memory.buffer, ptr, width * height);
 }
 
-export function getNextSlopemap(
+export function getNeighborSlopemap(
+  dr: number,
+  dc: number,
   width: number,
   height: number
 ): Float32Array | null {
-  const ptr = getSim().next_slopemap_ptr();
+  const ptr = getSim().neighbor_slopemap_ptr(dr, dc);
   if (ptr === 0) return null;
   return new Float32Array(memory.buffer, ptr, width * height);
 }

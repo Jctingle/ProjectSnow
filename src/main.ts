@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { getNextHeightmap, getNextSlopemap, getSim, getSlopemap } from './entityStore';
+import { getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
@@ -49,11 +49,15 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 let ground = createTerrainMesh(sim);
 scene.add(ground);
 let slopeDebugOn = false;
-let nextGround: THREE.Mesh | null = null;
-let nextShardKey: string | null = null;
+const NEIGHBOR_KEYS: [number, number][] = [
+  [0, 1], [0, -1], [1, 0], [-1, 0],
+  [1, 1], [1, -1], [-1, 1], [-1, -1],
+];
+const neighborMeshes = new Map<string, THREE.Mesh>();
+const keyOf = (dr: number, dc: number) => `${dr},${dc}`;
 let prevShardRow = sim.current_shard_row();
 let prevShardCol = sim.current_shard_col();
-let hasRunNextHeightmapSanityCheck = false;
+let hasRunNeighborHeightmapSanityCheck = false;
 let cameraFollowOn = true;
 
 function disposeTerrainMesh(mesh: THREE.Mesh): void {
@@ -67,9 +71,9 @@ function disposeTerrainMesh(mesh: THREE.Mesh): void {
   }
 }
 
-function warnIfNextHeightmapLooksInvalid(heightmap: Float32Array): void {
-  if (hasRunNextHeightmapSanityCheck) return;
-  hasRunNextHeightmapSanityCheck = true;
+function warnIfNeighborHeightmapLooksInvalid(heightmap: Float32Array): void {
+  if (hasRunNeighborHeightmapSanityCheck) return;
+  hasRunNeighborHeightmapSanityCheck = true;
 
   const length = heightmap.length;
   if (length === 0) {
@@ -98,6 +102,8 @@ function warnIfNextHeightmapLooksInvalid(heightmap: Float32Array): void {
 
 function rebuildGroundMesh(): void {
   disposeTerrainMesh(ground);
+  for (const mesh of neighborMeshes.values()) disposeTerrainMesh(mesh);
+  neighborMeshes.clear();
   ground = createTerrainMesh(sim);
   scene.add(ground);
   if (slopeDebugOn) {
@@ -149,13 +155,14 @@ createDevPanel(
         ground,
         getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
       );
-      if (nextGround) {
-        const nextSlope = getNextSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
-        if (nextSlope) applySlopeDebugColors(nextGround, nextSlope);
+      for (const [key, mesh] of neighborMeshes) {
+        const [dr, dc] = key.split(',').map(Number);
+        const sm = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+        if (sm) applySlopeDebugColors(mesh, sm);
       }
     } else {
       clearSlopeDebugColors(ground);
-      if (nextGround) clearSlopeDebugColors(nextGround);
+      for (const mesh of neighborMeshes.values()) clearSlopeDebugColors(mesh);
     }
   },
   (recallActive) => {
@@ -205,7 +212,6 @@ function animate() {
   prevShardRow = currentShardRow;
   prevShardCol = currentShardCol;
 
-  let skipNextGroundSync = false;
   if (didCrossShard) {
     inputRouter.shiftDestinationMarker(shiftX, shiftZ);
     if (!cameraFollowOn) {
@@ -214,62 +220,59 @@ function animate() {
       camera.updateMatrixWorld();
     }
 
-    // World rebased: shift both meshes into the new frame, then promote
-    // the preview mesh to current and keep the old current as the back neighbor.
-    ground.position.x += shiftX;
-    ground.position.z += shiftZ;
-    if (nextGround) {
-      nextGround.position.x += shiftX;
-      nextGround.position.z += shiftZ;
-      const promoted = nextGround;
-      nextGround = ground;
+    const crossKey = keyOf(crossDr, crossDc);
+    const promoted = neighborMeshes.get(crossKey);
+    if (promoted) {
+      neighborMeshes.delete(crossKey);
+      neighborMeshes.set(keyOf(-crossDr, -crossDc), ground);
       ground = promoted;
-      nextShardKey = `${-crossDr},${-crossDc}`;
+      const rekeyed = new Map<string, THREE.Mesh>();
+      for (const [key, mesh] of neighborMeshes) {
+        const [dr, dc] = key.split(',').map(Number);
+        const ndr = dr - crossDr;
+        const ndc = dc - crossDc;
+        if (Math.abs(ndr) <= 1 && Math.abs(ndc) <= 1 && !(ndr === 0 && ndc === 0)) {
+          rekeyed.set(keyOf(ndr, ndc), mesh);
+        } else {
+          disposeTerrainMesh(mesh);
+        }
+      }
+      neighborMeshes.clear();
+      for (const [k, m] of rekeyed) neighborMeshes.set(k, m);
+      ground.position.set(0, 0, 0);
+      for (const [k, m] of neighborMeshes) {
+        const [dr, dc] = k.split(',').map(Number);
+        m.position.set(dc * GROUND_SIZE, 0, dr * GROUND_SIZE);
+      }
     } else {
       rebuildGroundMesh();
-      nextGround = null;
-      nextShardKey = null;
-      skipNextGroundSync = true;
     }
   }
 
-  const nextReady = sim.next_shard_ready();
-  if (!skipNextGroundSync && nextReady) {
-    const nextDr = sim.next_shard_dr();
-    const nextDc = sim.next_shard_dc();
-    const key = `${nextDr},${nextDc}`;
-
-    if (nextGround === null || nextShardKey !== key) {
-      if (nextGround) {
-        disposeTerrainMesh(nextGround);
-        nextGround = null;
-        nextShardKey = null;
-      }
-
-      const nextHeightmap = getNextHeightmap(
-        HEIGHTMAP_GRID_SIZE,
-        HEIGHTMAP_GRID_SIZE
-      );
-
-      if (nextHeightmap) {
-        warnIfNextHeightmapLooksInvalid(nextHeightmap);
-        nextGround = createTerrainMeshFromGrid(nextHeightmap, sim.height_mult());
+  let builtThisFrame = false;
+  for (const [dr, dc] of NEIGHBOR_KEYS) {
+    const key = keyOf(dr, dc);
+    const ready = sim.neighbor_ready(dr, dc);
+    const mesh = neighborMeshes.get(key);
+    if (ready && !mesh && !builtThisFrame) {
+      const hm = getNeighborHeightmap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+      if (hm) {
+        warnIfNeighborHeightmapLooksInvalid(hm);
+        const m = createTerrainMeshFromGrid(hm, sim.height_mult());
         if (slopeDebugOn) {
-          const nextSlope = getNextSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
-          if (nextSlope) applySlopeDebugColors(nextGround, nextSlope);
+          const sm = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+          if (sm) applySlopeDebugColors(m, sm);
         }
-        nextGround.position.x = nextDc * GROUND_SIZE;
-        nextGround.position.z = nextDr * GROUND_SIZE;
-        scene.add(nextGround);
-        nextShardKey = key;
+        m.position.x = dc * GROUND_SIZE;
+        m.position.z = dr * GROUND_SIZE;
+        scene.add(m);
+        neighborMeshes.set(key, m);
+        builtThisFrame = true;
       }
+    } else if (!ready && mesh) {
+      disposeTerrainMesh(mesh);
+      neighborMeshes.delete(key);
     }
-  }
-
-  if (!nextReady && nextGround) {
-    disposeTerrainMesh(nextGround);
-    nextGround = null;
-    nextShardKey = null;
   }
 
   syncApcMesh(apcMesh, sim);

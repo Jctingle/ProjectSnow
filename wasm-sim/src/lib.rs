@@ -369,47 +369,6 @@ impl Sim {
             .map_or(std::ptr::null(), |neighbor| neighbor.terrain.slopemap_ptr())
     }
 
-    // R1 shim: remove in R2
-    pub fn next_shard_ready(&self) -> bool {
-        let (ax, az) = self.apc.position_xz();
-        let he = self.current.terrain.half_extent();
-        trigger_direction(ax, az, he)
-            .and_then(|(dr, dc)| self.neighbor_shard(dr, dc))
-            .is_some()
-    }
-
-    // R1 shim: remove in R2
-    pub fn next_shard_dc(&self) -> i32 {
-        let (ax, az) = self.apc.position_xz();
-        let he = self.current.terrain.half_extent();
-        trigger_direction(ax, az, he).map_or(0, |(_, dc)| dc)
-    }
-
-    // R1 shim: remove in R2
-    pub fn next_shard_dr(&self) -> i32 {
-        let (ax, az) = self.apc.position_xz();
-        let he = self.current.terrain.half_extent();
-        trigger_direction(ax, az, he).map_or(0, |(dr, _)| dr)
-    }
-
-    // R1 shim: remove in R2
-    pub fn next_heightmap_ptr(&self) -> *const f32 {
-        let (ax, az) = self.apc.position_xz();
-        let he = self.current.terrain.half_extent();
-        trigger_direction(ax, az, he).map_or(std::ptr::null(), |(dr, dc)| {
-            self.neighbor_heightmap_ptr(dr, dc)
-        })
-    }
-
-    // R1 shim: remove in R2
-    pub fn next_slopemap_ptr(&self) -> *const f32 {
-        let (ax, az) = self.apc.position_xz();
-        let he = self.current.terrain.half_extent();
-        trigger_direction(ax, az, he).map_or(std::ptr::null(), |(dr, dc)| {
-            self.neighbor_slopemap_ptr(dr, dc)
-        })
-    }
-
     pub fn current_shard_row(&self) -> i32 {
         self.current.row
     }
