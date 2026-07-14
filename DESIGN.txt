@@ -1,0 +1,69 @@
+ProjectSnow — Design Notes
+Living doc. Update as decisions get made or change. Not a spec, just shared memory.
+Core Concept
+Browser-based, lightweight (Three.js + WebGL + Rust/WASM), procedurally generated all-white snowy world. Isometric perspective. Ephemeral, non-persistent world — nothing saved except player-owned entities (APC, units, programs, inventory).
+Core Loop
+* Player commands a mobile APC (Sandcrawler-style long-term scale ambition, starts small) that slowly traverses shards.
+* APC carries/manages a small crew. Units can be deployed to explore ruins/structures the APC can't physically reach.
+* Units loot raw materials, research inspiration, fuel components, gear components from ruins (small/medium/large scale = more reward, more risk).
+* Raw materials feed a crafting/research system that produces upgrades — this is where build variety/expressiveness lives, not in loot generation.
+* APC and units consume Heat (universal resource) to move/explore. Sources: burning materials, reactor (passive gen), bio-reactions (late-game research route). This is fuel + survival timer combined (Lost Planet-inspired).
+World / Shards
+* Shards are deterministic from seed + coordinates. Nothing persists once left behind (per current design) — terrain isn't stored, just regenerated if revisited (though current plan is shards aren't revisited at all).
+* At most 2 shards active per player (current + approaching). Distance-to-edge triggers next-shard generation behind a blizzard-whiteout transition.
+* Difficulty is a vector of modifiers, not one dial, all derived deterministically from shard coordinates (+ secondary noise layers):
+   * Distance from origin (coarse difficulty curve, protects new players)
+   * Structure depth (per-building, more floors = more risk/reward)
+   * Heat signature (enemy presence/density)
+   * Magnetic response (player-influenceable via APC upgrades — stealth/detection mechanic)
+* Terrain must guarantee neighboring-shard accessibility:
+   * Smooth slopes = climbable, costs Heat proportional to steepness
+   * Steepness over threshold = "cliff" — rendered as deliberate rock-formation artifacts (bulky stacked polygons), not just unclimbable smooth terrain
+   * Generation-time connectivity check (flood-fill walkable graph) guarantees a route always exists between shard entry/exit points; cliff-artifact placement is the mechanism used to guarantee/adjust this, not silent heightmap edits
+APC
+* Starts small (a few units' worth of capacity), scales up over the game toward eventual Sandcrawler-scale.
+* Has external upgrade slots and an internal room layout (modular, not fixed).
+* Carries the player's actual persistent state — units, crew, inventory.
+* Movement is slow, Heat-gated, blocked by cliffs (not smooth steep terrain).
+* Likely candidate for the one deliberate "real DOM/CSS UI" exception (XCOM-style base management screen — text/list heavy, DOM is better suited than canvas-rendered UI for this).
+Units
+* One entity type, multiple states: crewed (inside APC, assignable to rooms/production) vs deployed (out exploring) vs enroute.
+* Same underlying data record regardless of state — state determines presentation/behavior, not separate systems.
+* Wide variation planned: soldiers, exosuits/mechs, robot dogs/walkers. Tech routes: organic/bio-mutation vs cybernetic implants. Leaning toward trait/component-based design over deep class inheritance, since unit types cross-cut (e.g. cybernetic soldier piloting an exosuit).
+* Resource pickup likely requires physically carrying loot back to APC to deposit (not instant/abstracted) — fits XCOM-style tactility.
+* Programmable via logic-blocks (Unicorn Overlord-inspired). Program assignment probably happens in APC context (pre-deployment briefing).
+Save / Persistence
+* Binary blob, flat typed-array SoA layout. Fixed-stride sections for units/vehicles, variable-length section for programs/opcodes. Quantized positions (i16 relative to shard origin) over f32 world-space.
+* No client-side tamper-sealing needed — save lives server-side (low-impact KV/flat-file storage), client only ever holds a working copy.
+* Login: two-QR flow.
+   * QR1 = ephemeral session-pairing token (desktop-generated, short TTL, no identity, just links a phone action to a desktop session)
+   * QR2 = persistent player credential ("snowflake"), encodes save-key, kept by player, never expires. Optionally cosmetically shaped by save stats for flavor.
+   * Flow: phone scans QR1 -> opens linking page -> requests camera -> scans own QR2 -> posts {session, key} to server -> server links save to session -> desktop's open socket/poll picks it up -> fetch + load.
+* Sync-to-server triggers: shard-exit (natural checkpoint) + low-frequency dirty-flag-gated timer fallback. Not per-action, not per-frame.
+Backend (intentionally thin)
+Single small Node/Bun process. No manual threading (event-loop is fine, this is I/O-bound bookkeeping, not compute).
+
+
+* Save storage (flat-file/simple KV, keyed by save-key)
+* Session/pairing socket server for QR1/QR2 login flow (in-memory map + TTL)
+* Relay/matchmaking for shard-intersection multiplayer (tracks occupancy, brokers connection only when two players' shard coords overlap)
+Rendering / Stylization (explicitly deferred until core loop is stable)
+* All-white terrain, simple meshes, custom rim/edge-lighting shader (Three.js ShaderMaterial, no raw WebGL needed)
+* Mild pixelation via Three.js's built-in postprocessing pixelation pass
+* Building exploration interaction (planned, not yet built): hover-outline -> click -> camera transition + terrain mesh hide -> transparent floor reveal (visited floors only) -> scroll-wheel becomes floor selector, clamped to explored range. Requires an explicit interaction-mode state (free-roam vs building-focus) since scroll/click meaning changes between modes.
+Multiplayer (deferred)
+* Ephemeral, ephemeral encounter-based. No persistent shared world state — shards are deterministic from seed, so two players in the same coordinates generate identical terrain without syncing geometry, only entity state needs to sync.
+* Relay only activates on shard-coordinate intersection. Otherwise idle.
+Explicitly Deferred / Not Yet Designed
+* Crafting/research tree shape (raw materials -> upgrades)
+* Room schema specifics for APC interior
+* Trait/component system specifics for unit variation
+* Logic-block VM opcode set
+* Magnetic-response player-control mechanic specifics
+* Save-sharing/balance implications ("here's my OP save")
+Tech Stack Summary
+* Frontend: Three.js + WebGL, Vite, TypeScript, no UI framework (occasional small DOM/CSS overlay for true text-input cases)
+* Compute: Rust -> WASM via wasm-pack (terrain noise, sim tick, eventually pathfinding + logic-block VM)
+* Dev env: GitHub Codespaces, devcontainer-defined (Node 20 + Rust + wasm32 target + wasm-pack)
+* Hosting (planned): static frontend on any static host; backend on a small VPS or similar, run via pm2 or plain tmux session (Docker optional, not required at this scale)
+* License: MIT
