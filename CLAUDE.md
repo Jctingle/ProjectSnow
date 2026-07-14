@@ -77,16 +77,21 @@ Known bugs already caught and resolved (don't reintroduce):
 - Single-frame flicker from teardown-instead-of-swap crossing logic.
 - R2 re-key ordering bug causing orphaned mesh overlay.
 
-## In progress / next up
+## Next up (designed, not yet implemented)
 
 - Destination-validity gate: `isValidDestination(point) -> { valid, reason? }`
   as single source of truth for move-target validity, called before any
-  order is issued. Currently handles cliff-face rejection (mesh raycast +
-  heightmap sampler validation layer: try mesh raycast first, cliff if hit
-  normal.y below threshold, fall back to heightmap sampler on raycast
-  dead-zone). Written so more reasons (occupied, out of range, insufficient
-  Heat) can be added later without changing call sites. No snap-to-nearest
-  — invalid destinations are rejected outright, not redirected.
+  order is issued. Design: try mesh raycast first, classify as cliff if
+  hit normal.y is below a threshold, fall back to the existing line/plane
+  + heightmap sampler on raycast dead-zone. Written so more reasons
+  (occupied, out of range, insufficient Heat) can be added later without
+  changing call sites. No snap-to-nearest — invalid destinations are
+  rejected outright, not redirected. **Nothing here is implemented yet —
+  no `isValidDestination` function, no mesh-raycast path, no click-handler
+  gating currently exist in the codebase.** Known existing bug this is
+  meant to fix: right-clicking a cliff/shear wall doesn't resolve to the
+  correct position because the heightmap sampler can't represent vertical
+  geometry.
 - After ring-1 completion: shard-obscuring treatment (backdrop plane,
   THREE.Fog, blizzard-reveal mechanic, pan clamp).
 
