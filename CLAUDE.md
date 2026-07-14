@@ -10,10 +10,6 @@ current state, and working conventions.
 
 ## Locked architectural decisions — do not revisit without explicit request
 
-- Hex shard macro-adjacency using **odd-r offset coordinates** (axial
-  coordinates only for math, never for storage/lookup).
-- Floating-origin coordinate rebasing on shard transition. Persistent
-  position format is `(current_shard: HexCoord, local_x, local_z)`.
 - Terrain parameters (`CRAG_STRENGTH`, `CRAG_FREQ`, `SWEEP_SCALE`,
   `SWEEP_AMP`, `TIER_HEIGHT_SCALE`) are exposed through `config.ts` and
   passed through `Sim::new` → `Terrain::new`. Never hardcode these in Rust.
