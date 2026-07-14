@@ -1,7 +1,10 @@
 import * as THREE from 'three';
-import { getSim } from '../entityStore';
+import { getSim, getSlopemap } from '../entityStore';
+import { GRADIENT_B_RED_START_DEG } from '../sim/config';
+import { HEIGHTMAP_GRID_SIZE } from '../sim/config';
 import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
+import { isValidDestination } from './destinationValidity';
 import type { DestinationMarkerController } from './destinationMarker';
 
 export function attachApcMoveCommand(
@@ -20,6 +23,22 @@ export function attachApcMoveCommand(
 
     const worldPoint = getGroundClickPoint(event, camera, renderer);
     if (!worldPoint) {
+      return;
+    }
+
+    destinationMarker.showAt(worldPoint);
+
+    const slopemap = getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+
+    const destinationValidity = isValidDestination(
+      worldPoint.x,
+      worldPoint.z,
+      GRADIENT_B_RED_START_DEG,
+      slopemap,
+    );
+    if (!destinationValidity.valid) {
+      destinationMarker.clear();
+      // Future feedback hook: cursor deny state and reject SFX.
       return;
     }
 

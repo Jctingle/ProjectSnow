@@ -82,13 +82,14 @@ export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
 // Not used by the current debug overlay.
 export const SLOPE_EASY_DEG = 15;
 
-// Reserved for future Heat-cost and cliff/pathfinding thresholds.
-// Not used by the current debug overlay.
-export const SLOPE_HARD_DEG = 28;
-
 // Gradient B's upper bound for slope debug coloring, in percent grade
 // (rise/run * 100). 100% grade == 45 degrees.
 export const GRADE_MAX_PERCENT = 100;
+
+// Start of Gradient B's yellow->red segment, converted to degrees so
+// systems that query slope_degrees_at() can compare directly.
+export const GRADIENT_B_RED_START_DEG =
+	Math.atan((GRADE_MAX_PERCENT * 0.75) / 100) * (180 / Math.PI);
 
 // Number of units spawned during initial setup.
 // Higher values increase scene/simulation load; lower values lighten CPU/GPU cost.
