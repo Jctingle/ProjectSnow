@@ -78,6 +78,9 @@ export const GROUND_SEGMENTS = Math.round(GROUND_SIZE / SEGMENT_DENSITY);
 // sit exactly on the visible ground instead of the underlying noise.
 export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
 
+// Input diagnostics for click/raycast investigation. Keep off in normal runs.
+export const DEBUG_INPUT_LOGGING = false;
+
 // Reserved for future Heat-cost and cliff/pathfinding thresholds.
 // Not used by the current debug overlay.
 export const SLOPE_EASY_DEG = 15;

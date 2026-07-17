@@ -242,3 +242,107 @@ fn cloned_shard_cached_heightmap_matches_live_sampling() {
         );
     }
 }
+
+#[test]
+fn slope_degrees_at_is_continuous_across_shard_coordinate_spaces() {
+    let world_seed = 31415u32;
+    let half_extent = 72.0f32;
+
+    let mut center =
+        Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    center.generate_heightmap(0, 0, half_extent * 2.0, half_extent * 2.0);
+    center.regenerate(world_seed, 0, 0);
+
+    let east = center.clone_params_for(world_seed, 0, 1);
+    let south = center.clone_params_for(world_seed, 1, 0);
+    let southeast = center.clone_params_for(world_seed, 1, 1);
+
+    let mut max_x_edge_diff = 0.0f32;
+    for zi in -20..=20 {
+        let z = zi as f32 * 3.1;
+        let a = center.slope_degrees_at(half_extent, z);
+        let b = east.slope_degrees_at(-half_extent, z);
+        max_x_edge_diff = max_x_edge_diff.max((a - b).abs());
+    }
+
+    let mut max_z_edge_diff = 0.0f32;
+    for xi in -20..=20 {
+        let x = xi as f32 * 3.1;
+        let a = center.slope_degrees_at(x, half_extent);
+        let b = south.slope_degrees_at(x, -half_extent);
+        max_z_edge_diff = max_z_edge_diff.max((a - b).abs());
+    }
+
+    let corner_center = center.slope_degrees_at(half_extent, half_extent);
+    let corner_east = east.slope_degrees_at(-half_extent, half_extent);
+    let corner_south = south.slope_degrees_at(half_extent, -half_extent);
+    let corner_southeast = southeast.slope_degrees_at(-half_extent, -half_extent);
+    let corner_max_diff = [corner_east, corner_south, corner_southeast]
+        .iter()
+        .map(|v| (corner_center - *v).abs())
+        .fold(0.0f32, f32::max);
+
+    println!(
+        "slope_degrees_at seam probe: x_edge_max={max_x_edge_diff:.6} z_edge_max={max_z_edge_diff:.6} corner_max={corner_max_diff:.6}"
+    );
+
+    assert!(max_x_edge_diff <= 1e-3, "x-edge slope mismatch too large: {max_x_edge_diff}");
+    assert!(max_z_edge_diff <= 1e-3, "z-edge slope mismatch too large: {max_z_edge_diff}");
+    assert!(corner_max_diff <= 1e-3, "corner slope mismatch too large: {corner_max_diff}");
+}
+
+#[test]
+fn slopemap_is_continuous_across_cardinal_edges_and_shared_corner() {
+    let world_seed = 27182u32;
+    let half_extent = 72.0f32;
+    let grid = 73usize;
+    let world = half_extent * 2.0;
+
+    let mut center =
+        Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    center.generate_heightmap(0, 0, world, world);
+    center.regenerate(world_seed, 0, 0);
+    center.generate_heightmap(grid, grid, world, world);
+    center.generate_slopemap();
+
+    let east = center.clone_params_for(world_seed, 0, 1);
+    let south = center.clone_params_for(world_seed, 1, 0);
+    let southeast = center.clone_params_for(world_seed, 1, 1);
+
+    let mut max_x_edge_diff = 0.0f32;
+    for row in 0..grid {
+        let a = center.slopemap[row * grid + (grid - 1)];
+        let b = east.slopemap[row * grid];
+        max_x_edge_diff = max_x_edge_diff.max((a - b).abs());
+    }
+
+    let mut max_z_edge_diff = 0.0f32;
+    for col in 0..grid {
+        let a = center.slopemap[(grid - 1) * grid + col];
+        let b = south.slopemap[col];
+        max_z_edge_diff = max_z_edge_diff.max((a - b).abs());
+    }
+
+    let corner_center = center.slopemap[(grid - 1) * grid + (grid - 1)];
+    let corner_east = east.slopemap[(grid - 1) * grid];
+    let corner_south = south.slopemap[grid - 1];
+    let corner_southeast = southeast.slopemap[0];
+    let corner_max_diff = [corner_east, corner_south, corner_southeast]
+        .iter()
+        .map(|v| (corner_center - *v).abs())
+        .fold(0.0f32, f32::max);
+
+    println!(
+        "slopemap seam probe: x_edge_max={max_x_edge_diff:.6} z_edge_max={max_z_edge_diff:.6} corner_max={corner_max_diff:.6}"
+    );
+
+    assert!(
+        max_x_edge_diff <= 0.2,
+        "x-edge slopemap mismatch too large: {max_x_edge_diff}"
+    );
+    assert!(
+        max_z_edge_diff <= 0.2,
+        "z-edge slopemap mismatch too large: {max_z_edge_diff}"
+    );
+    assert!(corner_max_diff <= 0.2, "corner slopemap mismatch too large: {corner_max_diff}");
+}

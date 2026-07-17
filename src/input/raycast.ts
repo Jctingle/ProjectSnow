@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { getSim } from '../entityStore';
-import { MAX_RAW_TERRAIN_HEIGHT } from '../sim/config';
+import { DEBUG_INPUT_LOGGING, MAX_RAW_TERRAIN_HEIGHT } from '../sim/config';
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
+
+function logRaycast(stage: string, payloadFactory: () => Record<string, unknown>): void {
+  if (!DEBUG_INPUT_LOGGING) return;
+  console.debug('[diag:right-click:raycast]', stage, payloadFactory());
+}
 
 export function getGroundClickPoint(
   event: MouseEvent,
@@ -12,7 +17,14 @@ export function getGroundClickPoint(
 ): THREE.Vector3 | null {
   const canvas = renderer.domElement;
   const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return null;
+  if (rect.width === 0 || rect.height === 0) {
+    logRaycast('reject:zero-canvas-rect', () => ({
+      clickScreen: { x: event.clientX, y: event.clientY },
+      rect: { width: rect.width, height: rect.height },
+      worldPoint: null,
+    }));
+    return null;
+  }
 
   ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -21,7 +33,16 @@ export function getGroundClickPoint(
 
   const origin = raycaster.ray.origin;
   const dir = raycaster.ray.direction;
-  if (Math.abs(dir.y) < 1e-8) return null;
+  if (Math.abs(dir.y) < 1e-8) {
+    logRaycast('reject:parallel-ray', () => ({
+      clickScreen: { x: event.clientX, y: event.clientY },
+      ndc: { x: ndc.x, y: ndc.y },
+      rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
+      rayDir: { x: dir.x, y: dir.y, z: dir.z },
+      worldPoint: null,
+    }));
+    return null;
+  }
 
   const sim = getSim();
 
@@ -58,7 +79,17 @@ export function getGroundClickPoint(
     prevF = value;
   }
 
-  if (a === null || b === null) return null;
+  if (a === null || b === null) {
+    logRaycast('reject:no-sign-change-in-height-bracket', () => ({
+      clickScreen: { x: event.clientX, y: event.clientY },
+      ndc: { x: ndc.x, y: ndc.y },
+      rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
+      rayDir: { x: dir.x, y: dir.y, z: dir.z },
+      tRange: { t0, t1 },
+      worldPoint: null,
+    }));
+    return null;
+  }
 
   let left = a;
   let right = b;
@@ -77,5 +108,14 @@ export function getGroundClickPoint(
   const tFinal: number = (left + right) / 2;
   const x = origin.x + dir.x * tFinal;
   const z = origin.z + dir.z * tFinal;
-  return new THREE.Vector3(x, heightAt(tFinal), z);
+  const point = new THREE.Vector3(x, heightAt(tFinal), z);
+  logRaycast('accept:intersection', () => ({
+    clickScreen: { x: event.clientX, y: event.clientY },
+    ndc: { x: ndc.x, y: ndc.y },
+    rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
+    rayDir: { x: dir.x, y: dir.y, z: dir.z },
+    tFinal,
+    worldPoint: { x: point.x, y: point.y, z: point.z },
+  }));
+  return point;
 }

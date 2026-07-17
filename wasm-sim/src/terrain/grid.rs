@@ -50,7 +50,9 @@ impl Terrain {
 
     /// Must be called after generate_heightmap(). Builds a slope-degrees
     /// grid at the same resolution as self.heightmap, using central
-    /// differences over the cached heights (one-sided at grid edges).
+    /// differences over the cached heights. At grid borders, this uses a
+    /// one-cell halo sample from sample_height() instead of clamping back
+    /// to the edge cell so seam-adjacent debug slopes match across shards.
     /// This is the debug-overlay-only path - gameplay code should call
     /// slope_degrees_at() instead, not this grid.
     pub fn generate_slopemap(&mut self) {
@@ -62,29 +64,41 @@ impl Terrain {
             return;
         }
 
-        self.slopemap = vec![0.0; w * h];
+        let mut slopemap = vec![0.0; w * h];
+        let sample_or_halo = |col: isize, row: isize| -> f32 {
+            if col >= 0 && row >= 0 && (col as usize) < w && (row as usize) < h {
+                return self.heightmap[row as usize * w + col as usize];
+            }
+
+            let wx = -self.hm_half_w + col as f32 * self.hm_cell_w;
+            let wz = -self.hm_half_h + row as f32 * self.hm_cell_h;
+            self.sample_height(wx as f64, wz as f64)
+        };
+
         for row in 0..h {
             for col in 0..w {
-                let x0 = col.saturating_sub(1);
-                let x1 = (col + 1).min(w - 1);
-                let z0 = row.saturating_sub(1);
-                let z1 = (row + 1).min(h - 1);
+                let x0 = col as isize - 1;
+                let x1 = col as isize + 1;
+                let z0 = row as isize - 1;
+                let z1 = row as isize + 1;
 
-                let h_x0 = self.heightmap[row * w + x0];
-                let h_x1 = self.heightmap[row * w + x1];
-                let h_z0 = self.heightmap[z0 * w + col];
-                let h_z1 = self.heightmap[z1 * w + col];
+                let h_x0 = sample_or_halo(x0, row as isize);
+                let h_x1 = sample_or_halo(x1, row as isize);
+                let h_z0 = sample_or_halo(col as isize, z0);
+                let h_z1 = sample_or_halo(col as isize, z1);
 
-                let dx = ((x1 - x0) as f32) * self.hm_cell_w;
-                let dz = ((z1 - z0) as f32) * self.hm_cell_h;
+                let dx = (x1 - x0) as f32 * self.hm_cell_w;
+                let dz = (z1 - z0) as f32 * self.hm_cell_h;
 
                 let dhx = (h_x1 - h_x0) * self.height_mult / dx.max(f32::EPSILON);
                 let dhz = (h_z1 - h_z0) * self.height_mult / dz.max(f32::EPSILON);
 
                 let gradient = (dhx * dhx + dhz * dhz).sqrt();
-                self.slopemap[row * w + col] = gradient.atan().to_degrees();
+                slopemap[row * w + col] = gradient.atan().to_degrees();
             }
         }
+
+        self.slopemap = slopemap;
     }
 
     #[inline]
