@@ -7,7 +7,9 @@ export const DestinationRejectReason = {
 export type DestinationRejectReason =
   (typeof DestinationRejectReason)[keyof typeof DestinationRejectReason];
 
-export function isValidDestination(
+// Checks terrain standability (slope/cliff) only, not route/path reachability.
+// A future isReachable check will be added separately and share this denial pathway.
+export function isStandable(
   x: number,
   z: number,
   maxSlopeDeg: number,

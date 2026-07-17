@@ -8,7 +8,7 @@ import {
 } from '../sim/config';
 import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
-import { isValidDestination } from './destinationValidity';
+import { isStandable } from './destinationValidity';
 import type { DestinationMarkerController } from './destinationMarker';
 import { nearestSlopeAt } from '../world/slopeLookup';
 
@@ -83,7 +83,7 @@ export function attachApcMoveCommand(
     const slopemap = getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
     const sampledSlopeDeg = nearestSlopeAt(slopemap, worldPoint.x, worldPoint.z);
 
-    const destinationValidity = isValidDestination(
+    const destinationValidity = isStandable(
       worldPoint.x,
       worldPoint.z,
       GRADIENT_B_RED_START_DEG,

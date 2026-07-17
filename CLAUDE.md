@@ -30,6 +30,11 @@ current state, and working conventions.
 - Movement execution is decoupled from behavioral intent (e.g. a unit's
   "go here" decision is separate from the code that actually steps it
   along a path).
+- Destination validity is split into two concerns: `isStandable`
+  (slope/cliff check — permanent, independent of pathfinding, currently
+  the only check in place) and `isReachable` (path-existence check —
+  deferred until real A* pathfinding lands). Both gate the same
+  right-click destination-denial pathway; do not conflate them.
 - For each new entity type, explicitly frame the choice as Pattern A
   (bespoke struct) vs Pattern B (SoA swarm) rather than defaulting to one.
 - Prefer mathematical solutions over library workarounds when a library's
