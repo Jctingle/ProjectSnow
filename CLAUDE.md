@@ -64,7 +64,7 @@ Terrain streaming / shard continuity system, multi-stage:
 - **Stage C**: two-shard `Sim` structure, edge trigger, crossing with
   coordinate rebase, dual mesh lifecycle.
 - **Ring-1 (R1/R2)**: Rust neighbor slots with cardinals-first backfill
-  and TS mesh map generalization — specced, partially implemented.
+  and TS mesh map generalization — implemented and verified complete.
 
 Known bugs already caught and resolved (don't reintroduce):
 - False-positive continuity test masked by SEA_LEVEL clamp.
