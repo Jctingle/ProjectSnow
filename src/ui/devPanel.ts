@@ -9,9 +9,14 @@ import {
   CRAG_FREQ,
   SWEEP_SCALE,
   SWEEP_AMP,
+  TILT_SHIFT_BLUR_STRENGTH,
+  TILT_SHIFT_ENABLED,
+  TILT_SHIFT_FOCUS_CENTER,
+  TILT_SHIFT_FOCUS_WIDTH,
   TIER_HEIGHT_SCALE,
 } from '../sim/config';
 import type { BlizzardMaskSettings } from '../render/blizzardMask';
+import type { TiltShiftSettings } from '../render/tiltShiftPass';
 
 interface FieldConfig {
   label: string;
@@ -31,6 +36,14 @@ interface LocalFieldConfig {
   set: (value: number) => void;
 }
 
+interface TiltShiftFieldConfig {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  default: number;
+}
+
 const FIELDS: FieldConfig[] = [
   { label: 'HEIGHT_MULT', min: 0.5, max: 3.0, step: 0.01, default: HEIGHT_MULT, set: (sim, v) => sim.set_height_mult(v) },
   { label: 'CRAG_STRENGTH', min: 0.0, max: 1.0, step: 0.01, default: CRAG_STRENGTH, set: (sim, v) => sim.set_crag_strength(v) },
@@ -45,6 +58,12 @@ const BLIZZARD_DEFAULTS: BlizzardMaskSettings = {
   featherWidth: BLIZZARD_FEATHER_WIDTH,
   hazeStartRatio: BLIZZARD_HAZE_START_RATIO,
   alphaExponent: BLIZZARD_ALPHA_EXPONENT,
+};
+
+const TILT_SHIFT_DEFAULTS: TiltShiftSettings = {
+  focusCenter: TILT_SHIFT_FOCUS_CENTER,
+  focusWidth: TILT_SHIFT_FOCUS_WIDTH,
+  blurStrength: TILT_SHIFT_BLUR_STRENGTH,
 };
 
 let recallCheckboxRef: HTMLInputElement | null = null;
@@ -75,7 +94,9 @@ export function createDevPanel(
   onSlopeDebugToggle?: (checked: boolean) => void,
   onRecallToggle?: (recallActive: boolean) => void,
   onCameraFollowToggle?: (followActive: boolean) => void,
-  onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void
+  onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void,
+  onTiltShiftToggle?: (enabled: boolean) => void,
+  onTiltShiftSettingsChange?: (settings: Partial<TiltShiftSettings>) => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -124,17 +145,53 @@ export function createDevPanel(
 
   recallCheckboxRef = recallCheckbox;
 
-  const tuningToggleRow = document.createElement('div');
-  tuningToggleRow.style.cssText =
+  const terrainToggleRow = document.createElement('div');
+  terrainToggleRow.style.cssText =
     'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const tuningCheckbox = document.createElement('input');
-  tuningCheckbox.type = 'checkbox';
-  tuningCheckbox.checked = false;
-  const tuningLabel = document.createElement('label');
-  tuningLabel.textContent = 'Show tuning sliders';
-  tuningToggleRow.appendChild(tuningCheckbox);
-  tuningToggleRow.appendChild(tuningLabel);
-  panel.appendChild(tuningToggleRow);
+  const terrainCheckbox = document.createElement('input');
+  terrainCheckbox.type = 'checkbox';
+  terrainCheckbox.checked = false;
+  const terrainLabel = document.createElement('label');
+  terrainLabel.textContent = 'Show terrain sliders';
+  terrainToggleRow.appendChild(terrainCheckbox);
+  terrainToggleRow.appendChild(terrainLabel);
+  panel.appendChild(terrainToggleRow);
+
+  const blizzardToggleRow = document.createElement('div');
+  blizzardToggleRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const blizzardCheckbox = document.createElement('input');
+  blizzardCheckbox.type = 'checkbox';
+  blizzardCheckbox.checked = false;
+  const blizzardLabel = document.createElement('label');
+  blizzardLabel.textContent = 'Show blizzard sliders';
+  blizzardToggleRow.appendChild(blizzardCheckbox);
+  blizzardToggleRow.appendChild(blizzardLabel);
+  panel.appendChild(blizzardToggleRow);
+
+  const tiltShiftEnabledRow = document.createElement('div');
+  tiltShiftEnabledRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const tiltShiftEnabledCheckbox = document.createElement('input');
+  tiltShiftEnabledCheckbox.type = 'checkbox';
+  tiltShiftEnabledCheckbox.checked = TILT_SHIFT_ENABLED;
+  const tiltShiftEnabledLabel = document.createElement('label');
+  tiltShiftEnabledLabel.textContent = 'Tilt-shift enabled';
+  tiltShiftEnabledRow.appendChild(tiltShiftEnabledCheckbox);
+  tiltShiftEnabledRow.appendChild(tiltShiftEnabledLabel);
+  panel.appendChild(tiltShiftEnabledRow);
+
+  const tiltShiftToggleRow = document.createElement('div');
+  tiltShiftToggleRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const tiltShiftCheckbox = document.createElement('input');
+  tiltShiftCheckbox.type = 'checkbox';
+  tiltShiftCheckbox.checked = false;
+  const tiltShiftLabel = document.createElement('label');
+  tiltShiftLabel.textContent = 'Show tilt-shift sliders';
+  tiltShiftToggleRow.appendChild(tiltShiftCheckbox);
+  tiltShiftToggleRow.appendChild(tiltShiftLabel);
+  panel.appendChild(tiltShiftToggleRow);
 
   const deployedRow = document.createElement('div');
   deployedRow.style.cssText =
@@ -148,9 +205,17 @@ export function createDevPanel(
   panel.appendChild(deployedRow);
   deployedCountSpanRef = deployedValue;
 
-  const tuningPanel = document.createElement('div');
-  tuningPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
-  panel.appendChild(tuningPanel);
+  const terrainPanel = document.createElement('div');
+  terrainPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+  panel.appendChild(terrainPanel);
+
+  const blizzardPanel = document.createElement('div');
+  blizzardPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+  panel.appendChild(blizzardPanel);
+
+  const tiltShiftPanel = document.createElement('div');
+  tiltShiftPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+  panel.appendChild(tiltShiftPanel);
 
   slopeCheckbox.addEventListener('change', () => {
     onSlopeDebugToggle?.(slopeCheckbox.checked);
@@ -164,8 +229,20 @@ export function createDevPanel(
     onCameraFollowToggle?.(cameraFollowCheckbox.checked);
   });
 
-  tuningCheckbox.addEventListener('change', () => {
-    tuningPanel.style.display = tuningCheckbox.checked ? 'flex' : 'none';
+  terrainCheckbox.addEventListener('change', () => {
+    terrainPanel.style.display = terrainCheckbox.checked ? 'flex' : 'none';
+  });
+
+  blizzardCheckbox.addEventListener('change', () => {
+    blizzardPanel.style.display = blizzardCheckbox.checked ? 'flex' : 'none';
+  });
+
+  tiltShiftEnabledCheckbox.addEventListener('change', () => {
+    onTiltShiftToggle?.(tiltShiftEnabledCheckbox.checked);
+  });
+
+  tiltShiftCheckbox.addEventListener('change', () => {
+    tiltShiftPanel.style.display = tiltShiftCheckbox.checked ? 'flex' : 'none';
   });
 
   function createSliderRow(
@@ -220,7 +297,7 @@ export function createDevPanel(
           scheduleRebuild();
         },
       },
-      tuningPanel,
+      terrainPanel,
     );
   }
 
@@ -258,7 +335,7 @@ export function createDevPanel(
     {
       label: 'BLIZZARD_ALPHA_EXPONENT',
       min: 0.5,
-      max: 3,
+      max: 4,
       step: 0.05,
       default: BLIZZARD_DEFAULTS.alphaExponent,
       set: (value) => {
@@ -276,7 +353,51 @@ export function createDevPanel(
           onBlizzardSettingsChange?.(blizzardSettings);
         },
       },
-      tuningPanel,
+      blizzardPanel,
+    );
+  }
+
+  const tiltShiftFields: TiltShiftFieldConfig[] = [
+    {
+      label: 'TILT_SHIFT_FOCUS_CENTER',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      default: TILT_SHIFT_DEFAULTS.focusCenter,
+    },
+    {
+      label: 'TILT_SHIFT_FOCUS_WIDTH',
+      min: 0.05,
+      max: 0.8,
+      step: 0.01,
+      default: TILT_SHIFT_DEFAULTS.focusWidth,
+    },
+    {
+      label: 'TILT_SHIFT_BLUR_STRENGTH',
+      min: 0,
+      max: 20,
+      step: 0.25,
+      default: TILT_SHIFT_DEFAULTS.blurStrength,
+    },
+  ];
+
+  const tiltShiftPatchFactories: Array<(value: number) => Partial<TiltShiftSettings>> = [
+    (value) => ({ focusCenter: value }),
+    (value) => ({ focusWidth: value }),
+    (value) => ({ blurStrength: value }),
+  ];
+
+  for (const [index, field] of tiltShiftFields.entries()) {
+    createSliderRow(
+      {
+        ...field,
+        onInput: (value: number) => {
+          const toPatch = tiltShiftPatchFactories[index];
+          if (!toPatch) return;
+          onTiltShiftSettingsChange?.(toPatch(value));
+        },
+      },
+      tiltShiftPanel,
     );
   }
 

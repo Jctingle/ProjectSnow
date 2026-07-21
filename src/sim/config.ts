@@ -71,6 +71,19 @@ export const BLIZZARD_HAZE_START_RATIO = 0.35;
 // transparent and push denser whiteout farther outward.
 export const BLIZZARD_ALPHA_EXPONENT = 1.6;
 
+// Vertical screen-space center of the in-focus tilt-shift band (0=bottom, 1=top).
+export const TILT_SHIFT_FOCUS_CENTER = 0.5;
+
+// Width of the fully in-focus horizontal band in normalized screen height.
+export const TILT_SHIFT_FOCUS_WIDTH = 0.2;
+
+// Maximum blur radius (in pixels) at the top/bottom screen edges.
+export const TILT_SHIFT_BLUR_STRENGTH = 8;
+
+// Master switch for the tilt-shift post-process effect.
+// When false, the pass is removed from the composer.
+export const TILT_SHIFT_ENABLED = false;
+
 // Total terrain width/depth in world units.
 // Increasing expands playable terrain area; decreasing shrinks it.
 // Derived values below scale from this to preserve mesh/heightmap density.

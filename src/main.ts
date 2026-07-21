@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css';
 import { getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { createBlizzardMask } from './render/blizzardMask';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
+import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
@@ -28,6 +31,9 @@ const camera   = new THREE.OrthographicCamera(
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const tiltShift = createTiltShiftEffect(composer, window.innerWidth, window.innerHeight);
 
 // lights
 const dirLight = new THREE.DirectionalLight(0xffffff, 2);
@@ -182,6 +188,12 @@ createDevPanel(
   },
   (settings) => {
     blizzardMask.setSettings(settings);
+  },
+  (enabled) => {
+    tiltShift.setEnabled(enabled);
+  },
+  (settings) => {
+    tiltShift.setSettings(settings);
   }
 );
 updateDeployedCount(sim.deployed_unit_count());
@@ -316,7 +328,7 @@ function animate() {
   }
 
   syncInstancedMesh();
-  renderer.render(scene, camera);
+  composer.render();
 }
 animate();
 
@@ -329,4 +341,16 @@ window.addEventListener('resize', () => {
   camera.bottom =  -currentViewSize / 2;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  tiltShift.setResolution(window.innerWidth, window.innerHeight);
 });
+
+if (import.meta.env.DEV) {
+  Object.assign(window as Window & { __tiltShiftDebug?: unknown }, {
+    __tiltShiftDebug: {
+      isEnabled: () => tiltShift.isEnabled(),
+      isPassAttached: () => tiltShift.isPassAttached(),
+      getLiveUniforms: () => tiltShift.getLiveUniforms(),
+    },
+  });
+}
