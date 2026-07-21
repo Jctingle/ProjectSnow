@@ -3,6 +3,7 @@ import './style.css';
 import { getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
+import { createBlizzardMask } from './render/blizzardMask';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
@@ -119,6 +120,8 @@ const inputRouter = initInputRouter(camera, renderer, scene);
 // APC
 const apcMesh = createApcMesh();
 scene.add(apcMesh);
+const blizzardMask = createBlizzardMask();
+scene.add(blizzardMask.mesh);
 
 // units
 scene.add(instancedUnits);
@@ -176,6 +179,9 @@ createDevPanel(
   (followActive) => {
     cameraFollowOn = followActive;
     setCameraFollowEnabled(followActive);
+  },
+  (settings) => {
+    blizzardMask.setSettings(settings);
   }
 );
 updateDeployedCount(sim.deployed_unit_count());
@@ -298,6 +304,7 @@ function animate() {
   }
 
   syncApcMesh(apcMesh, sim);
+  blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
   if (cameraFollowOn) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
   }

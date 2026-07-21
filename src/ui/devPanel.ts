@@ -1,5 +1,9 @@
 import type { Sim } from 'wasm-sim';
 import {
+  BLIZZARD_ALPHA_EXPONENT,
+  BLIZZARD_CLEAR_RADIUS,
+  BLIZZARD_FEATHER_WIDTH,
+  BLIZZARD_HAZE_START_RATIO,
   HEIGHT_MULT,
   CRAG_STRENGTH,
   CRAG_FREQ,
@@ -7,6 +11,7 @@ import {
   SWEEP_AMP,
   TIER_HEIGHT_SCALE,
 } from '../sim/config';
+import type { BlizzardMaskSettings } from '../render/blizzardMask';
 
 interface FieldConfig {
   label: string;
@@ -17,6 +22,15 @@ interface FieldConfig {
   set: (sim: Sim, value: number) => void;
 }
 
+interface LocalFieldConfig {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  default: number;
+  set: (value: number) => void;
+}
+
 const FIELDS: FieldConfig[] = [
   { label: 'HEIGHT_MULT', min: 0.5, max: 3.0, step: 0.01, default: HEIGHT_MULT, set: (sim, v) => sim.set_height_mult(v) },
   { label: 'CRAG_STRENGTH', min: 0.0, max: 1.0, step: 0.01, default: CRAG_STRENGTH, set: (sim, v) => sim.set_crag_strength(v) },
@@ -25,6 +39,13 @@ const FIELDS: FieldConfig[] = [
   { label: 'SWEEP_AMP', min: 0.0, max: 3.0, step: 0.01, default: SWEEP_AMP, set: (sim, v) => sim.set_sweep_amp(v) },
   { label: 'TIER_HEIGHT_SCALE', min: 0.1, max: 1.5, step: 0.01, default: TIER_HEIGHT_SCALE, set: (sim, v) => sim.set_tier_height_scale(v) },
 ];
+
+const BLIZZARD_DEFAULTS: BlizzardMaskSettings = {
+  clearRadius: BLIZZARD_CLEAR_RADIUS,
+  featherWidth: BLIZZARD_FEATHER_WIDTH,
+  hazeStartRatio: BLIZZARD_HAZE_START_RATIO,
+  alphaExponent: BLIZZARD_ALPHA_EXPONENT,
+};
 
 let recallCheckboxRef: HTMLInputElement | null = null;
 let onRecallToggleRef: ((recallActive: boolean) => void) | null = null;
@@ -53,9 +74,11 @@ export function createDevPanel(
   onChange: () => void,
   onSlopeDebugToggle?: (checked: boolean) => void,
   onRecallToggle?: (recallActive: boolean) => void,
-  onCameraFollowToggle?: (followActive: boolean) => void
+  onCameraFollowToggle?: (followActive: boolean) => void,
+  onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
+  const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
 
   const panel = document.createElement('div');
   panel.style.cssText =
@@ -101,6 +124,18 @@ export function createDevPanel(
 
   recallCheckboxRef = recallCheckbox;
 
+  const tuningToggleRow = document.createElement('div');
+  tuningToggleRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const tuningCheckbox = document.createElement('input');
+  tuningCheckbox.type = 'checkbox';
+  tuningCheckbox.checked = false;
+  const tuningLabel = document.createElement('label');
+  tuningLabel.textContent = 'Show tuning sliders';
+  tuningToggleRow.appendChild(tuningCheckbox);
+  tuningToggleRow.appendChild(tuningLabel);
+  panel.appendChild(tuningToggleRow);
+
   const deployedRow = document.createElement('div');
   deployedRow.style.cssText =
     'display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
@@ -112,6 +147,10 @@ export function createDevPanel(
   deployedRow.appendChild(deployedValue);
   panel.appendChild(deployedRow);
   deployedCountSpanRef = deployedValue;
+
+  const tuningPanel = document.createElement('div');
+  tuningPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+  panel.appendChild(tuningPanel);
 
   slopeCheckbox.addEventListener('change', () => {
     onSlopeDebugToggle?.(slopeCheckbox.checked);
@@ -125,7 +164,21 @@ export function createDevPanel(
     onCameraFollowToggle?.(cameraFollowCheckbox.checked);
   });
 
-  for (const field of FIELDS) {
+  tuningCheckbox.addEventListener('change', () => {
+    tuningPanel.style.display = tuningCheckbox.checked ? 'flex' : 'none';
+  });
+
+  function createSliderRow(
+    field: {
+      label: string;
+      min: number;
+      max: number;
+      step: number;
+      default: number;
+      onInput: (value: number) => void;
+    },
+    parent: HTMLElement,
+  ): void {
     const row = document.createElement('div');
     row.style.cssText =
       'display:flex; flex-direction:column; gap:2px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
@@ -149,14 +202,82 @@ export function createDevPanel(
 
     slider.addEventListener('input', () => {
       const value = parseFloat(slider.value);
-      field.set(sim, value);
+      field.onInput(value);
       valueSpan.textContent = value.toFixed(4);
-      scheduleRebuild();
     });
 
     row.appendChild(labelRow);
     row.appendChild(slider);
-    panel.appendChild(row);
+    parent.appendChild(row);
+  }
+
+  for (const field of FIELDS) {
+    createSliderRow(
+      {
+        ...field,
+        onInput: (value: number) => {
+          field.set(sim, value);
+          scheduleRebuild();
+        },
+      },
+      tuningPanel,
+    );
+  }
+
+  const blizzardFields: LocalFieldConfig[] = [
+    {
+      label: 'BLIZZARD_CLEAR_RADIUS',
+      min: 5,
+      max: 100,
+      step: 1,
+      default: BLIZZARD_DEFAULTS.clearRadius,
+      set: (value) => {
+        blizzardSettings.clearRadius = value;
+      },
+    },
+    {
+      label: 'BLIZZARD_FEATHER_WIDTH',
+      min: 5,
+      max: 80,
+      step: 1,
+      default: BLIZZARD_DEFAULTS.featherWidth,
+      set: (value) => {
+        blizzardSettings.featherWidth = value;
+      },
+    },
+    {
+      label: 'BLIZZARD_HAZE_START_RATIO',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      default: BLIZZARD_DEFAULTS.hazeStartRatio,
+      set: (value) => {
+        blizzardSettings.hazeStartRatio = value;
+      },
+    },
+    {
+      label: 'BLIZZARD_ALPHA_EXPONENT',
+      min: 0.5,
+      max: 3,
+      step: 0.05,
+      default: BLIZZARD_DEFAULTS.alphaExponent,
+      set: (value) => {
+        blizzardSettings.alphaExponent = value;
+      },
+    },
+  ];
+
+  for (const field of blizzardFields) {
+    createSliderRow(
+      {
+        ...field,
+        onInput: (value: number) => {
+          field.set(value);
+          onBlizzardSettingsChange?.(blizzardSettings);
+        },
+      },
+      tuningPanel,
+    );
   }
 
   document.body.appendChild(panel);

@@ -57,6 +57,20 @@ export const TIER_HEIGHT_SCALE = 0.220;
 // pick random targets within.
 export const UNIT_WANDER_RADIUS = 8;
 
+// World units around the APC that remain fully clear of the blizzard mask.
+export const BLIZZARD_CLEAR_RADIUS = 40;
+
+// Width of the smooth falloff band from fully clear to full whiteout.
+export const BLIZZARD_FEATHER_WIDTH = 20;
+
+// Fraction of the clear radius reserved for a fully transparent inner core
+// before haze begins to build outward.
+export const BLIZZARD_HAZE_START_RATIO = 0.35;
+
+// Shapes the radial alpha curve. Higher values keep the near-APC haze more
+// transparent and push denser whiteout farther outward.
+export const BLIZZARD_ALPHA_EXPONENT = 1.6;
+
 // Total terrain width/depth in world units.
 // Increasing expands playable terrain area; decreasing shrinks it.
 // Derived values below scale from this to preserve mesh/heightmap density.
