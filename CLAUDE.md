@@ -105,6 +105,7 @@ Known bugs already caught and resolved (don't reintroduce):
 - SEA_LEVEL implicit-cliff interaction with future connectivity guarantees.
 - Proper A* pathfinding with walkability grid.
 - Deterministic building placement per shard.
+- APC hull vertical stutter near steep cliff edges: support-point centroid height is not smoothed yet, so adjacent walkable terrain beside a sharp drop can still produce visible vertical jumps even though orientation is already slerped. Low priority while cliffs remain rejected by `isStandable`; if `isReachable` ever routes near cliff boundaries, revisit by applying the same smoothing treatment to centroid height.
 - New entity types: enemies, vehicles (mech/jeep derivatives),
   bio-mutants, cybernetics.
 - Two-QR login + save system (lightweight Node/Bun backend, flat binary

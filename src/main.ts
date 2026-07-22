@@ -315,7 +315,7 @@ function animate() {
     }
   }
 
-  syncApcMesh(apcMesh, sim);
+  syncApcMesh(apcMesh, sim, frameTime);
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
   if (cameraFollowOn) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());

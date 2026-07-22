@@ -128,3 +128,13 @@ export const UNIT_COUNT = 25;
 // Initial spacing between spawned units around the spawn point.
 // Higher values spread units farther apart; lower values cluster them tightly.
 export const UNIT_SPACING = 0.35;
+
+// APC hull footprint dimensions in world units.
+export const APC_HULL_LENGTH = 0.9;
+export const APC_HULL_WIDTH = 0.55;
+
+// Hover offset from fitted support-plane centroid.
+export const APC_HOVER_HEIGHT = 0.22;
+
+// Orientation smoothing speed in 1/seconds for quaternion slerp.
+export const APC_ORIENTATION_SLERP_RATE = 12;
