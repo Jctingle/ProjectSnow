@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 mod apc;
+mod pathfinding;
 mod rng;
 mod shard_ring;
 mod terrain;
