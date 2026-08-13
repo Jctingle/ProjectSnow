@@ -21,7 +21,10 @@ fn sloped_terrain() -> Terrain {
 fn sloped_edge() -> EdgeTraversal {
     let terrain = sloped_terrain();
     let edge = edge_traversal(&terrain, FROM, TO, 90.0);
-    assert!(edge.slope_deg > 0.0, "fixture unexpectedly produced flat terrain");
+    assert!(
+        edge.slope_deg > 0.0,
+        "fixture unexpectedly produced flat terrain"
+    );
     edge
 }
 
@@ -81,4 +84,52 @@ fn max_slope_is_a_real_threshold_input() {
 
     assert!(blocked.blocked);
     assert!(!allowed.blocked);
+}
+
+#[test]
+fn straight_flat_path_has_expected_tiles_and_cost() {
+    let terrain = flat_terrain();
+    let result = find_path(&terrain, (0, 0), (5, 0), 0.0).expect("flat path should exist");
+
+    assert_eq!(result.tiles.len(), 6);
+    assert_eq!(result.edges.len(), 5);
+    assert!((result.total_cost - 5.0).abs() <= 1e-5);
+    assert_eq!(result.tiles.first(), Some(&(0, 0)));
+    assert_eq!(result.tiles.last(), Some(&(5, 0)));
+}
+
+#[test]
+fn localized_blocked_region_routes_around_without_blocked_tiles() {
+    let terrain = sloped_terrain();
+    let result = find_path(&terrain, (0, -3), (5, -3), 10.0)
+        .expect("route should exist around the localized steep patch");
+    let straight_cost = 5.0;
+
+    eprintln!(
+        "localized route: tiles={:?} cost={:.6}",
+        result.tiles, result.total_cost
+    );
+    assert!(!result.tiles.contains(&(2, -3)));
+    assert!(!result.tiles.contains(&(3, -3)));
+    assert!(result.total_cost > straight_cost);
+}
+
+#[test]
+fn fully_surrounded_goal_is_unreachable() {
+    let terrain = sloped_terrain();
+    let result = find_path(&terrain, (0, -4), (3, -4), 30.0);
+
+    assert!(result.is_none());
+}
+
+#[test]
+fn max_slope_changes_routing_result() {
+    let terrain = sloped_terrain();
+    let blocked = find_path(&terrain, (0, -3), (5, -3), 10.0)
+        .expect("restricted route should go around the steep patch");
+    let permissive = find_path(&terrain, (0, -3), (5, -3), 80.0)
+        .expect("permissive route should cross the steep patch");
+
+    assert_ne!(blocked.tiles, permissive.tiles);
+    assert!(permissive.tiles.len() < blocked.tiles.len());
 }
