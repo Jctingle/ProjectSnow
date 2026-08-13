@@ -9,6 +9,7 @@ import {
 import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
 import { isStandable } from './destinationValidity';
+import { findPathTiles, worldPointToTile } from './pathfinding';
 import type { DestinationMarkerController } from './destinationMarker';
 import { nearestSlopeAt } from '../world/slopeLookup';
 
@@ -103,6 +104,16 @@ export function attachApcMoveCommand(
       // Future feedback hook: cursor deny state and reject SFX.
       return;
     }
+
+    const pathStart = worldPointToTile(apcX, apcZ);
+    const pathGoal = worldPointToTile(worldPoint.x, worldPoint.z);
+    const pathTiles = findPathTiles(sim, pathStart, pathGoal, GRADIENT_B_RED_START_DEG);
+    logRightClick('pathfinding:computed', () => ({
+      start: pathStart,
+      goal: pathGoal,
+      tileCount: pathTiles.length,
+      tiles: pathTiles,
+    }));
 
     logRightClick('accept:pre-set-target', () => ({
       clickScreen: { x: event.clientX, y: event.clientY },

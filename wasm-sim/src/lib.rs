@@ -11,6 +11,7 @@ mod units;
 mod shard_ring_tests;
 
 use apc::Apc;
+use pathfinding::find_path;
 use rng::Rng;
 use shard_ring::{crossing_direction, trigger_direction, Shard, NEIGHBOR_OFFSETS};
 use units::Units;
@@ -226,6 +227,29 @@ impl Sim {
 
     pub fn is_structure_viable(&self, x: f32, z: f32) -> bool {
         self.current.terrain.is_structure_viable(x, z)
+    }
+
+    pub fn find_path_wasm(
+        &self,
+        start_x: i32,
+        start_z: i32,
+        goal_x: i32,
+        goal_z: i32,
+        max_slope_deg: f32,
+    ) -> Vec<i32> {
+        find_path(
+            &self.current.terrain,
+            (start_x, start_z),
+            (goal_x, goal_z),
+            max_slope_deg,
+        )
+        .map(|path| {
+            path.tiles
+                .into_iter()
+                .flat_map(|(x, z)| [x, z])
+                .collect()
+        })
+        .unwrap_or_default()
     }
 
     pub fn apc_x(&self) -> f32 {
