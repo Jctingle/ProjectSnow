@@ -9,6 +9,9 @@ import {
   CRAG_FREQ,
   SWEEP_SCALE,
   SWEEP_AMP,
+  SLOPE_CLIFF_THRESHOLD_DEG,
+  SLOPE_PASSABLE_MAX_DEG,
+  setSlopeThresholds,
   TILT_SHIFT_BLUR_STRENGTH,
   TILT_SHIFT_ENABLED,
   TILT_SHIFT_FOCUS_CENTER,
@@ -100,6 +103,10 @@ export function createDevPanel(
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
+  const slopeSettings = {
+    passableMaxDeg: SLOPE_PASSABLE_MAX_DEG,
+    cliffThresholdDeg: SLOPE_CLIFF_THRESHOLD_DEG,
+  };
 
   const panel = document.createElement('div');
   panel.style.cssText =
@@ -169,6 +176,18 @@ export function createDevPanel(
   blizzardToggleRow.appendChild(blizzardLabel);
   panel.appendChild(blizzardToggleRow);
 
+  const slopeThresholdToggleRow = document.createElement('div');
+  slopeThresholdToggleRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const slopeThresholdCheckbox = document.createElement('input');
+  slopeThresholdCheckbox.type = 'checkbox';
+  slopeThresholdCheckbox.checked = false;
+  const slopeThresholdLabel = document.createElement('label');
+  slopeThresholdLabel.textContent = 'Show slope sliders';
+  slopeThresholdToggleRow.appendChild(slopeThresholdCheckbox);
+  slopeThresholdToggleRow.appendChild(slopeThresholdLabel);
+  panel.appendChild(slopeThresholdToggleRow);
+
   const tiltShiftEnabledRow = document.createElement('div');
   tiltShiftEnabledRow.style.cssText =
     'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
@@ -213,6 +232,10 @@ export function createDevPanel(
   blizzardPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
   panel.appendChild(blizzardPanel);
 
+  const slopeThresholdPanel = document.createElement('div');
+  slopeThresholdPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+  panel.appendChild(slopeThresholdPanel);
+
   const tiltShiftPanel = document.createElement('div');
   tiltShiftPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
   panel.appendChild(tiltShiftPanel);
@@ -237,6 +260,10 @@ export function createDevPanel(
     blizzardPanel.style.display = blizzardCheckbox.checked ? 'flex' : 'none';
   });
 
+  slopeThresholdCheckbox.addEventListener('change', () => {
+    slopeThresholdPanel.style.display = slopeThresholdCheckbox.checked ? 'flex' : 'none';
+  });
+
   tiltShiftEnabledCheckbox.addEventListener('change', () => {
     onTiltShiftToggle?.(tiltShiftEnabledCheckbox.checked);
   });
@@ -255,7 +282,7 @@ export function createDevPanel(
       onInput: (value: number) => void;
     },
     parent: HTMLElement,
-  ): void {
+  ): { slider: HTMLInputElement; valueSpan: HTMLSpanElement } {
     const row = document.createElement('div');
     row.style.cssText =
       'display:flex; flex-direction:column; gap:2px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
@@ -280,12 +307,14 @@ export function createDevPanel(
     slider.addEventListener('input', () => {
       const value = parseFloat(slider.value);
       field.onInput(value);
-      valueSpan.textContent = value.toFixed(4);
+      valueSpan.textContent = parseFloat(slider.value).toFixed(4);
     });
 
     row.appendChild(labelRow);
     row.appendChild(slider);
     parent.appendChild(row);
+
+    return { slider, valueSpan };
   }
 
   for (const field of FIELDS) {
@@ -356,6 +385,49 @@ export function createDevPanel(
       blizzardPanel,
     );
   }
+
+  let passableSlider: HTMLInputElement | null = null;
+  let cliffSlider: HTMLInputElement | null = null;
+
+  const passableRow = createSliderRow(
+    {
+      label: 'SLOPE_PASSABLE_MAX_DEG',
+      min: 0,
+      max: 90,
+      step: 1,
+      default: slopeSettings.passableMaxDeg,
+      onInput: (value: number) => {
+        if (value >= slopeSettings.cliffThresholdDeg) {
+          if (passableSlider) passableSlider.value = String(slopeSettings.passableMaxDeg);
+          return;
+        }
+        slopeSettings.passableMaxDeg = value;
+        setSlopeThresholds(slopeSettings.passableMaxDeg, slopeSettings.cliffThresholdDeg);
+      },
+    },
+    slopeThresholdPanel,
+  );
+  passableSlider = passableRow.slider;
+
+  const cliffRow = createSliderRow(
+    {
+      label: 'SLOPE_CLIFF_THRESHOLD_DEG',
+      min: 0,
+      max: 90,
+      step: 1,
+      default: slopeSettings.cliffThresholdDeg,
+      onInput: (value: number) => {
+        if (value <= slopeSettings.passableMaxDeg) {
+          if (cliffSlider) cliffSlider.value = String(slopeSettings.cliffThresholdDeg);
+          return;
+        }
+        slopeSettings.cliffThresholdDeg = value;
+        setSlopeThresholds(slopeSettings.passableMaxDeg, slopeSettings.cliffThresholdDeg);
+      },
+    },
+    slopeThresholdPanel,
+  );
+  cliffSlider = cliffRow.slider;
 
   const tiltShiftFields: TiltShiftFieldConfig[] = [
     {

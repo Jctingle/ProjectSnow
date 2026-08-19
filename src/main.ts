@@ -12,8 +12,12 @@ import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
 import { createApcMesh, syncApcMesh } from './world/apc';
-import { applySlopeDebugColors, clearSlopeDebugColors } from './world/terrainDebug';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
+import {
+  createTierOverlayMesh,
+  disposeTierOverlayMesh,
+  setTierOverlayVisible,
+} from './world/terrainTierOverlay';
 
 const scene    = new THREE.Scene();
 const aspect   = window.innerWidth / window.innerHeight;
@@ -54,20 +58,32 @@ sim.set_apc_target(sim.apc_x(), sim.apc_z());
 
 // terrain
 let ground = createTerrainMesh(sim);
-scene.add(ground);
 let slopeDebugOn = false;
 const NEIGHBOR_KEYS: [number, number][] = [
   [0, 1], [0, -1], [1, 0], [-1, 0],
   [1, 1], [1, -1], [-1, 1], [-1, -1],
 ];
 const neighborMeshes = new Map<string, THREE.Mesh>();
+const tierOverlays = new Map<THREE.Mesh, THREE.Mesh>();
 const keyOf = (dr: number, dc: number) => `${dr},${dc}`;
 let prevShardRow = sim.current_shard_row();
 let prevShardCol = sim.current_shard_col();
 let hasRunNeighborHeightmapSanityCheck = false;
 let cameraFollowOn = true;
 
+function attachTierOverlay(mesh: THREE.Mesh, slopemap: Float32Array): void {
+  const overlay = createTierOverlayMesh(mesh, slopemap);
+  overlay.visible = slopeDebugOn;
+  mesh.add(overlay);
+  tierOverlays.set(mesh, overlay);
+}
+
+scene.add(ground);
+attachTierOverlay(ground, getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE));
+
 function disposeTerrainMesh(mesh: THREE.Mesh): void {
+  disposeTierOverlayMesh(tierOverlays.get(mesh));
+  tierOverlays.delete(mesh);
   scene.remove(mesh);
   mesh.geometry.dispose();
   const material = mesh.material;
@@ -113,12 +129,7 @@ function rebuildGroundMesh(): void {
   neighborMeshes.clear();
   ground = createTerrainMesh(sim);
   scene.add(ground);
-  if (slopeDebugOn) {
-    applySlopeDebugColors(
-      ground,
-      getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
-    );
-  }
+  attachTierOverlay(ground, getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE));
 }
 
 const inputRouter = initInputRouter(camera, renderer, scene);
@@ -159,19 +170,9 @@ createDevPanel(
   },
   (checked) => {
     slopeDebugOn = checked;
-    if (checked) {
-      applySlopeDebugColors(
-        ground,
-        getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
-      );
-      for (const [key, mesh] of neighborMeshes) {
-        const [dr, dc] = key.split(',').map(Number);
-        const sm = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
-        if (sm) applySlopeDebugColors(mesh, sm);
-      }
-    } else {
-      clearSlopeDebugColors(ground);
-      for (const mesh of neighborMeshes.values()) clearSlopeDebugColors(mesh);
+    setTierOverlayVisible(tierOverlays.get(ground), checked);
+    for (const mesh of neighborMeshes.values()) {
+      setTierOverlayVisible(tierOverlays.get(mesh), checked);
     }
   },
   (recallActive) => {
@@ -287,10 +288,8 @@ function animate() {
       if (hm) {
         warnIfNeighborHeightmapLooksInvalid(hm);
         const m = createTerrainMeshFromGrid(hm, sim.height_mult());
-        if (slopeDebugOn) {
-          const sm = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
-          if (sm) applySlopeDebugColors(m, sm);
-        }
+        const sm = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+        if (sm) attachTierOverlay(m, sm);
         m.position.x = dc * GROUND_SIZE;
         m.position.z = dr * GROUND_SIZE;
         scene.add(m);

@@ -108,18 +108,21 @@ export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
 // Input diagnostics for click/raycast investigation. Keep off in normal runs.
 export const DEBUG_INPUT_LOGGING = false;
 
-// Reserved for future Heat-cost and cliff/pathfinding thresholds.
-// Not used by the current debug overlay.
-export const SLOPE_EASY_DEG = 15;
+// Live slope-tier thresholds. Dev-panel sliders update these at runtime.
+export let SLOPE_PASSABLE_MAX_DEG = 15;
+export let SLOPE_CLIFF_THRESHOLD_DEG = 45;
 
-// Gradient B's upper bound for slope debug coloring, in percent grade
-// (rise/run * 100). 100% grade == 45 degrees.
-export const GRADE_MAX_PERCENT = 100;
+export function setSlopeThresholds(
+	passableMaxDeg: number,
+	cliffThresholdDeg: number,
+): void {
+	SLOPE_PASSABLE_MAX_DEG = passableMaxDeg;
+	SLOPE_CLIFF_THRESHOLD_DEG = cliffThresholdDeg;
+}
 
-// Start of Gradient B's yellow->red segment, converted to degrees so
-// systems that query slope_degrees_at() can compare directly.
-export const GRADIENT_B_RED_START_DEG =
-	Math.atan((GRADE_MAX_PERCENT * 0.75) / 100) * (180 / Math.PI);
+// Compatibility value for the untouched movement-command caller. Destination
+// validity itself uses classifySlopeTier and the live thresholds above.
+export const GRADIENT_B_RED_START_DEG = SLOPE_CLIFF_THRESHOLD_DEG;
 
 // Number of units spawned during initial setup.
 // Higher values increase scene/simulation load; lower values lighten CPU/GPU cost.

@@ -10,7 +10,7 @@ import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
 import { isStandable } from './destinationValidity';
 import type { DestinationMarkerController } from './destinationMarker';
-import { nearestSlopeAt } from '../world/slopeLookup';
+import { classifySlopeTier, nearestSlopeAt } from '../world/slopeLookup';
 
 type ShardResolution = {
   relativeDr: number;
@@ -35,6 +35,34 @@ function resolveShardForPoint(x: number, z: number): ShardResolution {
 function logRightClick(stage: string, payloadFactory: () => Record<string, unknown>): void {
   if (!DEBUG_INPUT_LOGGING) return;
   console.debug('[diag:right-click]', stage, payloadFactory());
+}
+
+// DIAGNOSTIC - TEMPORARY - remove after slope classification investigation
+// Prints raw cached slopemap tiers without involving Three.js rendering.
+function dumpTierNeighborhood(
+  slopemap: Float32Array,
+  centerCol: number,
+  centerRow: number,
+  radius: number = 4,
+): void {
+  const gridSize = HEIGHTMAP_GRID_SIZE;
+  let output = '';
+  for (let row = centerRow - radius; row <= centerRow + radius; row++) {
+    let line = '';
+    for (let col = centerCol - radius; col <= centerCol + radius; col++) {
+      if (row < 0 || row >= gridSize || col < 0 || col >= gridSize) {
+        line += ' ? ';
+        continue;
+      }
+      const deg = slopemap[row * gridSize + col];
+      const tier = classifySlopeTier(deg);
+      line += tier === 'passable' ? ' P ' : tier === 'rolling' ? ' R ' : ' C ';
+    }
+    output += line + '\n';
+  }
+  console.log(
+    `[TIER GRID] center(${centerCol},${centerRow}) radius=${radius}\n${output}`
+  );
 }
 
 export function attachApcMoveCommand(
@@ -82,6 +110,50 @@ export function attachApcMoveCommand(
 
     const slopemap = getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
     const sampledSlopeDeg = nearestSlopeAt(slopemap, worldPoint.x, worldPoint.z);
+
+    // Use the same nearest-cell normalization as nearestSlopeAt().
+    const gridSize = HEIGHTMAP_GRID_SIZE;
+    const col = Math.min(
+      Math.max(
+        Math.round((worldPoint.x / GROUND_SIZE + 0.5) * (gridSize - 1)),
+        0,
+      ),
+      gridSize - 1,
+    );
+    const row = Math.min(
+      Math.max(
+        Math.round((worldPoint.z / GROUND_SIZE + 0.5) * (gridSize - 1)),
+        0,
+      ),
+      gridSize - 1,
+    );
+    dumpTierNeighborhood(slopemap, col, row);
+
+    // DIAGNOSTIC - TEMPORARY - remove after slope classification investigation
+    // Compares cached slopemap values against the authoritative Rust point query
+    // and reports whether the click falls outside the current shard's cache.
+    {
+      const cached = sampledSlopeDeg;
+      const live = sim.slope_degrees_at(worldPoint.x, worldPoint.z);
+      // The Rust sim rebases the active shard to local origin on crossing;
+      // current terrain and its cached maps are always centered at (0, 0).
+      const shardOriginX = 0;
+      const shardOriginZ = 0;
+      const localX = worldPoint.x - shardOriginX;
+      const localZ = worldPoint.z - shardOriginZ;
+      const halfGround = GROUND_SIZE / 2;
+      const outsideCachedWindow =
+        Math.abs(localX) > halfGround || Math.abs(localZ) > halfGround;
+      const delta = Math.abs(cached - live);
+
+      console.log(
+        `[SLOPE DIAG] world(${worldPoint.x.toFixed(2)}, ${worldPoint.z.toFixed(2)}) ` +
+        `local(${localX.toFixed(2)}, ${localZ.toFixed(2)}) ` +
+        `${outsideCachedWindow ? '⚠ OUTSIDE-WINDOW ' : ''}` +
+        `cached=${cached.toFixed(2)}° live=${live.toFixed(2)}° delta=${delta.toFixed(2)}° ` +
+        `tier(cached)=${classifySlopeTier(cached)} tier(live)=${classifySlopeTier(live)}`
+      );
+    }
 
     const destinationValidity = isStandable(
       worldPoint.x,

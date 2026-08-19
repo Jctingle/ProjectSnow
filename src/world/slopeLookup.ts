@@ -1,7 +1,17 @@
 import {
   GROUND_SIZE,
   HEIGHTMAP_GRID_SIZE,
+  SLOPE_CLIFF_THRESHOLD_DEG,
+  SLOPE_PASSABLE_MAX_DEG,
 } from '../sim/config';
+
+export type SlopeTier = 'passable' | 'rolling' | 'cliff';
+
+export function classifySlopeTier(deg: number): SlopeTier {
+  if (deg <= SLOPE_PASSABLE_MAX_DEG) return 'passable';
+  if (deg < SLOPE_CLIFF_THRESHOLD_DEG) return 'rolling';
+  return 'cliff';
+}
 
 // Looks up the nearest slopemap grid cell for a given world (x, z), using
 // the same normalization generate_heightmap uses on the Rust side (grid_w-1

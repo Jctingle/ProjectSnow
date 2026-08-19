@@ -1,4 +1,4 @@
-import { nearestSlopeAt } from '../world/slopeLookup';
+import { classifySlopeTier, nearestSlopeAt } from '../world/slopeLookup';
 
 export const DestinationRejectReason = {
   CLIFF: 'CLIFF',
@@ -12,12 +12,13 @@ export type DestinationRejectReason =
 export function isStandable(
   x: number,
   z: number,
-  maxSlopeDeg: number,
+  _maxSlopeDeg: number,
   slopemap: Float32Array
 ): { valid: boolean; reason?: DestinationRejectReason } {
   const slopeDeg = nearestSlopeAt(slopemap, x, z);
+  const isCliff = classifySlopeTier(slopeDeg) === 'cliff';
 
-  if (slopeDeg > maxSlopeDeg) {
+  if (isCliff) {
     return { valid: false, reason: DestinationRejectReason.CLIFF };
   }
 
