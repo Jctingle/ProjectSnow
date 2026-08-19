@@ -15,8 +15,6 @@ current state, and working conventions.
   passed through `Sim::new` → `Terrain::new`. Never hardcode these in Rust.
 - Terrain default values are locked as ideal — do not "improve" them
   without being asked.
-- **Hex grid adjacency: permanently cancelled.** Do not reintroduce or
-  suggest it.
 
 ## Engineering tenets
 
