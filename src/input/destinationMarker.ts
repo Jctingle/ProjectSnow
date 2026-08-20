@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { getSim } from '../entityStore';
 
 const SAMPLES_PER_SEGMENT = 12;
-const STEM_HEIGHT = 0.4;
-const LINE_Y_NUDGE = 0.05;
+const STEM_HEIGHT = 1.5;
+const LINE_Y_NUDGE = 0.3;
 
 type DebugMarkerState = {
   pins: THREE.Mesh[];
