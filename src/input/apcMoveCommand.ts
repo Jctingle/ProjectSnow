@@ -45,6 +45,8 @@ function dumpTierNeighborhood(
   centerRow: number,
   radius: number = 4,
 ): void {
+  if (!DEBUG_INPUT_LOGGING) return;
+
   const gridSize = HEIGHTMAP_GRID_SIZE;
   let output = '';
   for (let row = centerRow - radius; row <= centerRow + radius; row++) {
@@ -132,7 +134,7 @@ export function attachApcMoveCommand(
     // DIAGNOSTIC - TEMPORARY - remove after slope classification investigation
     // Compares cached slopemap values against the authoritative Rust point query
     // and reports whether the click falls outside the current shard's cache.
-    {
+    if (DEBUG_INPUT_LOGGING) {
       const cached = sampledSlopeDeg;
       const live = sim.slope_degrees_at(worldPoint.x, worldPoint.z);
       // The Rust sim rebases the active shard to local origin on crossing;

@@ -106,7 +106,11 @@ export const GROUND_SEGMENTS = Math.round(GROUND_SIZE / SEGMENT_DENSITY);
 export const HEIGHTMAP_GRID_SIZE = GROUND_SEGMENTS + 1;
 
 // Input diagnostics for click/raycast investigation. Keep off in normal runs.
-export const DEBUG_INPUT_LOGGING = false;
+export let DEBUG_INPUT_LOGGING = false;
+
+export function setDebugInputLogging(enabled: boolean): void {
+	DEBUG_INPUT_LOGGING = enabled;
+}
 
 // Live slope-tier thresholds. Dev-panel sliders update these at runtime.
 export let SLOPE_PASSABLE_MAX_DEG = 15;

@@ -12,6 +12,7 @@ import {
   SWEEP_AMP,
   SLOPE_CLIFF_THRESHOLD_DEG,
   SLOPE_PASSABLE_MAX_DEG,
+  setDebugInputLogging,
   setSlopeThresholds,
   TILT_SHIFT_BLUR_STRENGTH,
   TILT_SHIFT_ENABLED,
@@ -55,7 +56,6 @@ const FIELDS: FieldConfig[] = [
   { label: 'SWEEP_SCALE', min: 0.005, max: 0.05, step: 0.0005, default: SWEEP_SCALE, set: (sim, v) => sim.set_sweep_scale(v) },
   { label: 'SWEEP_AMP', min: 0.0, max: 3.0, step: 0.01, default: SWEEP_AMP, set: (sim, v) => sim.set_sweep_amp(v) },
   { label: 'TIER_HEIGHT_SCALE', min: 0.1, max: 1.5, step: 0.01, default: TIER_HEIGHT_SCALE, set: (sim, v) => sim.set_tier_height_scale(v) },
-  { label: 'APC_SPEED', min: 0.01, max: 1.0, step: 0.01, default: APC_SPEED_DEFAULT, set: (sim, v) => sim.set_apc_speed(v) },
 ];
 
 const BLIZZARD_DEFAULTS: BlizzardMaskSettings = {
@@ -102,6 +102,7 @@ export function createDevPanel(
   onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void,
   onTiltShiftToggle?: (enabled: boolean) => void,
   onTiltShiftSettingsChange?: (settings: Partial<TiltShiftSettings>) => void,
+  onDebugConsoleToggle?: (enabled: boolean) => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -112,7 +113,21 @@ export function createDevPanel(
 
   const panel = document.createElement('div');
   panel.style.cssText =
-    'position:fixed; top:90px; right:12px; z-index:10; display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:12px;';
+    'position:fixed; top:124px; right:12px; z-index:10; display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:12px;';
+
+  const masterRow = document.createElement('div');
+  masterRow.style.cssText =
+    'position:fixed; top:90px; right:12px; z-index:10; display:flex; align-items:center; gap:8px; background:rgba(120,30,30,0.8); padding:6px 8px; border-radius:4px; color:#fff; font-family:monospace; font-size:12px;';
+  const masterCheckbox = document.createElement('input');
+  masterCheckbox.type = 'checkbox';
+  const masterLabel = document.createElement('label');
+  masterLabel.textContent = 'Hide debug UI';
+  masterRow.appendChild(masterCheckbox);
+  masterRow.appendChild(masterLabel);
+  masterCheckbox.addEventListener('change', () => {
+    panel.style.display = masterCheckbox.checked ? 'none' : 'flex';
+  });
+  document.body.appendChild(masterRow);
 
   let rebuildScheduled = false;
   function scheduleRebuild(): void {
@@ -154,42 +169,6 @@ export function createDevPanel(
 
   recallCheckboxRef = recallCheckbox;
 
-  const terrainToggleRow = document.createElement('div');
-  terrainToggleRow.style.cssText =
-    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const terrainCheckbox = document.createElement('input');
-  terrainCheckbox.type = 'checkbox';
-  terrainCheckbox.checked = false;
-  const terrainLabel = document.createElement('label');
-  terrainLabel.textContent = 'Show terrain sliders';
-  terrainToggleRow.appendChild(terrainCheckbox);
-  terrainToggleRow.appendChild(terrainLabel);
-  panel.appendChild(terrainToggleRow);
-
-  const blizzardToggleRow = document.createElement('div');
-  blizzardToggleRow.style.cssText =
-    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const blizzardCheckbox = document.createElement('input');
-  blizzardCheckbox.type = 'checkbox';
-  blizzardCheckbox.checked = false;
-  const blizzardLabel = document.createElement('label');
-  blizzardLabel.textContent = 'Show blizzard sliders';
-  blizzardToggleRow.appendChild(blizzardCheckbox);
-  blizzardToggleRow.appendChild(blizzardLabel);
-  panel.appendChild(blizzardToggleRow);
-
-  const slopeThresholdToggleRow = document.createElement('div');
-  slopeThresholdToggleRow.style.cssText =
-    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const slopeThresholdCheckbox = document.createElement('input');
-  slopeThresholdCheckbox.type = 'checkbox';
-  slopeThresholdCheckbox.checked = false;
-  const slopeThresholdLabel = document.createElement('label');
-  slopeThresholdLabel.textContent = 'Show slope sliders';
-  slopeThresholdToggleRow.appendChild(slopeThresholdCheckbox);
-  slopeThresholdToggleRow.appendChild(slopeThresholdLabel);
-  panel.appendChild(slopeThresholdToggleRow);
-
   const tiltShiftEnabledRow = document.createElement('div');
   tiltShiftEnabledRow.style.cssText =
     'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
@@ -202,17 +181,59 @@ export function createDevPanel(
   tiltShiftEnabledRow.appendChild(tiltShiftEnabledLabel);
   panel.appendChild(tiltShiftEnabledRow);
 
-  const tiltShiftToggleRow = document.createElement('div');
-  tiltShiftToggleRow.style.cssText =
+  const debugConsoleRow = document.createElement('div');
+  debugConsoleRow.style.cssText =
     'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const tiltShiftCheckbox = document.createElement('input');
-  tiltShiftCheckbox.type = 'checkbox';
-  tiltShiftCheckbox.checked = false;
-  const tiltShiftLabel = document.createElement('label');
-  tiltShiftLabel.textContent = 'Show tilt-shift sliders';
-  tiltShiftToggleRow.appendChild(tiltShiftCheckbox);
-  tiltShiftToggleRow.appendChild(tiltShiftLabel);
-  panel.appendChild(tiltShiftToggleRow);
+  const debugConsoleCheckbox = document.createElement('input');
+  debugConsoleCheckbox.type = 'checkbox';
+  const debugConsoleLabel = document.createElement('label');
+  debugConsoleLabel.textContent = 'Debug console output';
+  debugConsoleRow.appendChild(debugConsoleCheckbox);
+  debugConsoleRow.appendChild(debugConsoleLabel);
+  panel.appendChild(debugConsoleRow);
+
+  const tabRow = document.createElement('div');
+  tabRow.style.cssText = 'display:flex; gap:4px;';
+  const tabContent = document.createElement('div');
+  tabContent.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+
+  const tabPanels = new Map<string, HTMLDivElement>();
+  let activeTab = 'terrain';
+  const showTab = (name: string): void => {
+    activeTab = name;
+    for (const [tabName, content] of tabPanels) {
+      content.style.display = tabName === activeTab ? 'flex' : 'none';
+    }
+    for (const button of tabRow.querySelectorAll('button')) {
+      const selected = button.dataset.tab === activeTab;
+      button.setAttribute('aria-selected', String(selected));
+      button.style.background = selected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.5)';
+    }
+  };
+  const createTab = (name: string, label: string): HTMLDivElement => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.tab = name;
+    button.textContent = label;
+    button.setAttribute('aria-selected', 'false');
+    button.style.cssText =
+      'border:0; border-radius:4px; padding:6px 8px; color:#fff; cursor:pointer; font:inherit;';
+    button.addEventListener('click', () => showTab(name));
+    tabRow.appendChild(button);
+    const content = document.createElement('div');
+    content.style.cssText = 'display:none; flex-direction:column; gap:6px;';
+    tabPanels.set(name, content);
+    tabContent.appendChild(content);
+    return content;
+  };
+  const terrainPanel = createTab('terrain', 'Terrain');
+  const blizzardPanel = createTab('blizzard', 'Blizzard');
+  const slopeThresholdPanel = createTab('slope', 'Slope');
+  const tiltShiftPanel = createTab('tilt-shift', 'Tilt-shift');
+  const testingPanel = createTab('testing', 'TESTING');
+  panel.appendChild(tabRow);
+  panel.appendChild(tabContent);
+  showTab(activeTab);
 
   const deployedRow = document.createElement('div');
   deployedRow.style.cssText =
@@ -226,22 +247,6 @@ export function createDevPanel(
   panel.appendChild(deployedRow);
   deployedCountSpanRef = deployedValue;
 
-  const terrainPanel = document.createElement('div');
-  terrainPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
-  panel.appendChild(terrainPanel);
-
-  const blizzardPanel = document.createElement('div');
-  blizzardPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
-  panel.appendChild(blizzardPanel);
-
-  const slopeThresholdPanel = document.createElement('div');
-  slopeThresholdPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
-  panel.appendChild(slopeThresholdPanel);
-
-  const tiltShiftPanel = document.createElement('div');
-  tiltShiftPanel.style.cssText = 'display:none; flex-direction:column; gap:6px;';
-  panel.appendChild(tiltShiftPanel);
-
   slopeCheckbox.addEventListener('change', () => {
     onSlopeDebugToggle?.(slopeCheckbox.checked);
   });
@@ -254,24 +259,13 @@ export function createDevPanel(
     onCameraFollowToggle?.(cameraFollowCheckbox.checked);
   });
 
-  terrainCheckbox.addEventListener('change', () => {
-    terrainPanel.style.display = terrainCheckbox.checked ? 'flex' : 'none';
-  });
-
-  blizzardCheckbox.addEventListener('change', () => {
-    blizzardPanel.style.display = blizzardCheckbox.checked ? 'flex' : 'none';
-  });
-
-  slopeThresholdCheckbox.addEventListener('change', () => {
-    slopeThresholdPanel.style.display = slopeThresholdCheckbox.checked ? 'flex' : 'none';
-  });
-
   tiltShiftEnabledCheckbox.addEventListener('change', () => {
     onTiltShiftToggle?.(tiltShiftEnabledCheckbox.checked);
   });
 
-  tiltShiftCheckbox.addEventListener('change', () => {
-    tiltShiftPanel.style.display = tiltShiftCheckbox.checked ? 'flex' : 'none';
+  debugConsoleCheckbox.addEventListener('change', () => {
+    setDebugInputLogging(debugConsoleCheckbox.checked);
+    onDebugConsoleToggle?.(debugConsoleCheckbox.checked);
   });
 
   function createSliderRow(
@@ -325,16 +319,26 @@ export function createDevPanel(
         ...field,
         onInput: (value: number) => {
           field.set(sim, value);
-          // Only schedule rebuild for terrain parameters, not APC_SPEED.
-          // APC_SPEED reads every tick and needs no geometry regeneration.
-          if (field.label !== 'APC_SPEED') {
-            scheduleRebuild();
-          }
+          scheduleRebuild();
         },
       },
       terrainPanel,
     );
   }
+
+  createSliderRow(
+    {
+      label: 'APC_SPEED',
+      min: 0.01,
+      max: 1.0,
+      step: 0.01,
+      default: APC_SPEED_DEFAULT,
+      onInput: (value: number) => {
+        sim.set_apc_speed(value);
+      },
+    },
+    testingPanel,
+  );
 
   const blizzardFields: LocalFieldConfig[] = [
     {

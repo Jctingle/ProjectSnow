@@ -195,6 +195,9 @@ createDevPanel(
   },
   (settings) => {
     tiltShift.setSettings(settings);
+  },
+  (enabled) => {
+    console.log('[debug] console output', enabled ? 'enabled' : 'disabled');
   }
 );
 updateDeployedCount(sim.deployed_unit_count());
