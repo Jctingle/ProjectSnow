@@ -28,17 +28,33 @@ export function createTierOverlayMesh(
       const i10 = idx(row, col + 1);
       const i01 = idx(row + 1, col);
       const i11 = idx(row + 1, col + 1);
-      // PlaneGeometry uses [i00, i01, i10, i01, i11, i10].
-      const corners = [i00, i01, i10, i01, i11, i10];
-      const [r, g, b] = TIER_COLORS[classifySlopeTier(slopemap[i00])];
 
-      for (const vertexIndex of corners) {
+      // PlaneGeometry uses [i00, i01, i10, i01, i11, i10].
+      // Triangle 1: [i00, i01, i10] colored by i00's slope.
+      // Triangle 2: [i01, i11, i10] colored by i11's slope.
+      const tri1 = [i00, i01, i10];
+      const tri2 = [i01, i11, i10];
+
+      const degTri1 = slopemap[i00];
+      const degTri2 = slopemap[i11];
+      const [r1, g1, b1] = TIER_COLORS[classifySlopeTier(degTri1)];
+      const [r2, g2, b2] = TIER_COLORS[classifySlopeTier(degTri2)];
+
+      for (const vertexIndex of tri1) {
         positions.push(
           srcPos.getX(vertexIndex),
           srcPos.getY(vertexIndex),
           srcPos.getZ(vertexIndex) + 0.05,
         );
-        colors.push(r, g, b);
+        colors.push(r1, g1, b1);
+      }
+      for (const vertexIndex of tri2) {
+        positions.push(
+          srcPos.getX(vertexIndex),
+          srcPos.getY(vertexIndex),
+          srcPos.getZ(vertexIndex) + 0.05,
+        );
+        colors.push(r2, g2, b2);
       }
     }
   }

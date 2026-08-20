@@ -41,6 +41,7 @@ impl Sim {
         sweep_scale: f64,
         sweep_amp: f32,
         tier_height_scale: f32,
+        apc_speed: f32,
         rng_seed: u32,
     ) -> Sim {
         let mut terrain = terrain::Terrain::new(
@@ -69,13 +70,17 @@ impl Sim {
             neighbors: std::array::from_fn(|_| None),
             world_seed: noise_seed,
             units: Units::new(max_units, unit_wander_radius),
-            apc: Apc::new(),
+            apc: Apc::new(apc_speed),
             rng: Rng::new(rng_seed),
         }
     }
 
     pub fn sample_height(&self, x: f64, z: f64) -> f32 {
         self.current.terrain.sample_height(x, z)
+    }
+
+    pub fn height_at_or_sample(&self, x: f32, z: f32) -> f32 {
+        self.current.terrain.height_at_or_sample(x, z)
     }
 
     pub fn generate_heightmap(
@@ -130,6 +135,10 @@ impl Sim {
     pub fn set_tier_height_scale(&mut self, v: f32) {
         self.current.terrain.set_tier_height_scale(v);
         self.clear_neighbors();
+    }
+
+    pub fn set_apc_speed(&mut self, v: f32) {
+        self.apc.set_speed(v);
     }
 
     pub fn spawn_unit(&mut self, x: f32, z: f32) -> i32 {

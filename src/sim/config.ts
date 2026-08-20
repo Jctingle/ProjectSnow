@@ -141,3 +141,7 @@ export const APC_HOVER_HEIGHT = 0.22;
 
 // Orientation smoothing speed in 1/seconds for quaternion slerp.
 export const APC_ORIENTATION_SLERP_RATE = 12;
+
+// APC movement speed in world units per frame (live-tunable via dev panel).
+// Current value: UNIT_SPEED * 1.5 = 0.1 * 1.5 = 0.15
+export const APC_SPEED_DEFAULT = 0.15;

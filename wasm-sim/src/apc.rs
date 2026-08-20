@@ -1,7 +1,5 @@
 use crate::terrain::Terrain;
-use crate::units::UNIT_SPEED;
 
-const APC_SPEED: f32 = UNIT_SPEED * 1.5; // TESTING: 3x normal (was /2.0) - revert before balancing
 const APC_TOUCH_RADIUS: f32 = 0.3;
 const APC_TOUCH_RADIUS_SQ: f32 = APC_TOUCH_RADIUS * APC_TOUCH_RADIUS;
 
@@ -11,16 +9,18 @@ pub struct Apc {
     z: f32,
     target_x: f32,
     target_z: f32,
+    speed: f32,
 }
 
 impl Apc {
-    pub fn new() -> Self {
+    pub fn new(speed: f32) -> Self {
         Self {
             x: 0.0,
             y: 0.0,
             z: 0.0,
             target_x: 0.0,
             target_z: 0.0,
+            speed,
         }
     }
 
@@ -31,7 +31,7 @@ impl Apc {
 
         if dist_sq >= APC_TOUCH_RADIUS_SQ {
             let dist = dist_sq.sqrt();
-            let step = (APC_SPEED * delta * 60.0).min(dist);
+            let step = (self.speed * delta * 60.0).min(dist);
             self.x += dx / dist * step;
             self.z += dz / dist * step;
         }
@@ -42,6 +42,10 @@ impl Apc {
     pub fn set_target(&mut self, x: f32, z: f32) {
         self.target_x = x;
         self.target_z = z;
+    }
+
+    pub fn set_speed(&mut self, v: f32) {
+        self.speed = v;
     }
 
     pub fn rebase(&mut self, dx: f32, dz: f32) {

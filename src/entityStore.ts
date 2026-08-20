@@ -1,5 +1,6 @@
 import init, { Sim } from 'wasm-sim';
 import {
+  APC_SPEED_DEFAULT,
   CRAG_FREQ,
   CRAG_STRENGTH,
   HEIGHT_MULT,
@@ -47,6 +48,7 @@ export async function initStore(): Promise<void> {
     SWEEP_SCALE,
     SWEEP_AMP,
     TIER_HEIGHT_SCALE,
+    APC_SPEED_DEFAULT,
     (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
 }

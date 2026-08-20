@@ -75,7 +75,7 @@ function resolveSupportPoints(
   const resolveAt = (localX: number, localZ: number): SupportPoint => {
     const worldX = centerX + localX * rightX + localZ * forwardX;
     const worldZ = centerZ + localX * rightZ + localZ * forwardZ;
-    const worldY = sim.sample_height(worldX, worldZ) * heightMult;
+    const worldY = sim.height_at_or_sample(worldX, worldZ) * heightMult;
     return { x: worldX, y: worldY, z: worldZ };
   };
 

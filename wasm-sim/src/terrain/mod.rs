@@ -319,13 +319,24 @@ impl Terrain {
     }
 
     fn gradient_at(&self, x: f32, z: f32) -> f32 {
-        const EPS: f32 = 0.5;
+        // EPS scales with grid resolution to match terrain feature density.
+        // If grid is initialized, use grid cell spacing; otherwise use default.
+        // Prior constant 0.5 was uncoupled from mesh resolution, causing mismatches
+        // on dense/crenellated terrain where feature spacing mattered.
+        let eps = if self.hm_width > 1 && self.hm_height > 1 {
+            // Grid is initialized; use its cell spacing (typically 2.0 units).
+            self.hm_cell_w.max(self.hm_cell_h)
+        } else {
+            // Grid not yet initialized; use a sensible default.
+            // Matches typical SEGMENT_DENSITY-derived spacing: GROUND_SIZE / GROUND_SEGMENTS = 144 / 72 = 2.0
+            2.0
+        };
         let h0 = self.sample_height(x as f64, z as f64);
-        let hx = self.sample_height((x + EPS) as f64, z as f64);
-        let hz = self.sample_height(x as f64, (z + EPS) as f64);
+        let hx = self.sample_height((x + eps) as f64, z as f64);
+        let hz = self.sample_height(x as f64, (z + eps) as f64);
         let dhx = (hx - h0) * self.height_mult;
         let dhz = (hz - h0) * self.height_mult;
-        (dhx * dhx + dhz * dhz).sqrt() / EPS
+        (dhx * dhx + dhz * dhz).sqrt() / eps
     }
 
     /// Slope in degrees at an arbitrary world-space point. This is the

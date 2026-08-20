@@ -1,5 +1,6 @@
 import type { Sim } from 'wasm-sim';
 import {
+  APC_SPEED_DEFAULT,
   BLIZZARD_ALPHA_EXPONENT,
   BLIZZARD_CLEAR_RADIUS,
   BLIZZARD_FEATHER_WIDTH,
@@ -54,6 +55,7 @@ const FIELDS: FieldConfig[] = [
   { label: 'SWEEP_SCALE', min: 0.005, max: 0.05, step: 0.0005, default: SWEEP_SCALE, set: (sim, v) => sim.set_sweep_scale(v) },
   { label: 'SWEEP_AMP', min: 0.0, max: 3.0, step: 0.01, default: SWEEP_AMP, set: (sim, v) => sim.set_sweep_amp(v) },
   { label: 'TIER_HEIGHT_SCALE', min: 0.1, max: 1.5, step: 0.01, default: TIER_HEIGHT_SCALE, set: (sim, v) => sim.set_tier_height_scale(v) },
+  { label: 'APC_SPEED', min: 0.01, max: 1.0, step: 0.01, default: APC_SPEED_DEFAULT, set: (sim, v) => sim.set_apc_speed(v) },
 ];
 
 const BLIZZARD_DEFAULTS: BlizzardMaskSettings = {
@@ -323,7 +325,11 @@ export function createDevPanel(
         ...field,
         onInput: (value: number) => {
           field.set(sim, value);
-          scheduleRebuild();
+          // Only schedule rebuild for terrain parameters, not APC_SPEED.
+          // APC_SPEED reads every tick and needs no geometry regeneration.
+          if (field.label !== 'APC_SPEED') {
+            scheduleRebuild();
+          }
         },
       },
       terrainPanel,

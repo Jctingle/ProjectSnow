@@ -93,6 +93,10 @@ impl Terrain {
                 let dhx = (h_x1 - h_x0) * self.height_mult / dx.max(f32::EPSILON);
                 let dhz = (h_z1 - h_z0) * self.height_mult / dz.max(f32::EPSILON);
 
+                // NOTE: Central difference span is 2 grid steps = 4 world units.
+                // This is the array that gameplay reads (debug overlay, destination gate, DDA validator).
+                // If diagnostic results still show meaningful cached/live disagreement after
+                // gradient_at() EPS scaling, this span may also need calibration for very dense terrain.
                 let gradient = (dhx * dhx + dhz * dhz).sqrt();
                 slopemap[row * w + col] = gradient.atan().to_degrees();
             }

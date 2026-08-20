@@ -104,8 +104,10 @@ fn slopemap_tracks_point_query_at_grid_points() {
 
     // These tolerances are intentionally loose because slope_degrees_at() is a
     // continuous point query over sample_height(), while generate_slopemap() uses
-    // cached grid central differences. Around SEA_LEVEL clamp transitions, small
-    // neighborhood shifts can produce larger local slope disagreements.
+    // cached grid central differences. Finite-difference spacing mismatches on dense,
+    // crenellated terrain can produce larger local slope disagreements. (The EPS
+    // mismatch in gradient_at() has been scaled, but the two implementations remain
+    // independent; a follow-up diagnostic will confirm tolerance adequacy.)
     assert!(mean_abs_diff <= 8.0, "mean abs diff too high: {mean_abs_diff:.2}");
     assert!(
         large_diff_count as f32 / samples as f32 <= 0.09,
