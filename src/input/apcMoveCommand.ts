@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import { getSim, getSlopemap } from '../entityStore';
 import {
   DEBUG_INPUT_LOGGING,
-  GRADIENT_B_RED_START_DEG,
   GROUND_SIZE,
   HEIGHTMAP_GRID_SIZE,
+  SLOPE_CLIFF_THRESHOLD_DEG,
 } from '../sim/config';
 import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
-import { isStandable } from './destinationValidity';
+import { validateSegment } from './destinationValidity';
 import type { DestinationMarkerController } from './destinationMarker';
 import { classifySlopeTier, nearestSlopeAt } from '../world/slopeLookup';
 
@@ -18,6 +18,37 @@ type ShardResolution = {
   absoluteRow: number;
   absoluteCol: number;
 };
+
+type Waypoint = { x: number; z: number };
+
+let waypointQueue: Waypoint[] = [];
+
+export function getApcWaypointQueue(): Waypoint[] {
+  return waypointQueue.map(({ x, z }) => ({ x, z }));
+}
+
+export function updateApcWaypointQueue(destinationMarker: DestinationMarkerController): void {
+  if (waypointQueue.length === 0) return;
+
+  const sim = getSim();
+  const waypoint = waypointQueue[0];
+  const dx = waypoint.x - sim.apc_x();
+  const dz = waypoint.z - sim.apc_z();
+  const touchRadius = sim.apc_touch_radius();
+  if (dx * dx + dz * dz > touchRadius * touchRadius) return;
+
+  waypointQueue.shift();
+  destinationMarker.rebuild(getApcWaypointQueue(), sim.apc_y());
+  const next = waypointQueue[0];
+  if (next) sim.set_apc_target(next.x, next.z);
+}
+
+export function shiftApcWaypointQueue(dx: number, dz: number): void {
+  for (const waypoint of waypointQueue) {
+    waypoint.x += dx;
+    waypoint.z += dz;
+  }
+}
 
 function resolveShardForPoint(x: number, z: number): ShardResolution {
   const sim = getSim();
@@ -80,6 +111,12 @@ export function attachApcMoveCommand(
     const sim = getSim();
     const apcX = sim.apc_x();
     const apcZ = sim.apc_z();
+    const append = event.ctrlKey;
+    if (!append) {
+      waypointQueue = [];
+      sim.set_apc_target(apcX, apcZ);
+      destinationMarker.rebuild([], sim.apc_y());
+    }
 
     if (gameMode.type !== 'freeRoam') {
       logRightClick('reject:game-mode', () => ({
@@ -107,8 +144,6 @@ export function attachApcMoveCommand(
 
     const shard = resolveShardForPoint(worldPoint.x, worldPoint.z);
     const distanceFromApc = Math.hypot(worldPoint.x - apcX, worldPoint.z - apcZ);
-
-    destinationMarker.showAt(worldPoint);
 
     const slopemap = getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
     const sampledSlopeDeg = nearestSlopeAt(slopemap, worldPoint.x, worldPoint.z);
@@ -157,14 +192,17 @@ export function attachApcMoveCommand(
       );
     }
 
-    const destinationValidity = isStandable(
+    const tail = waypointQueue[waypointQueue.length - 1];
+    const fromX = tail?.x ?? apcX;
+    const fromZ = tail?.z ?? apcZ;
+    const destinationValidity = validateSegment(
+      fromX,
+      fromZ,
       worldPoint.x,
       worldPoint.z,
-      GRADIENT_B_RED_START_DEG,
       slopemap,
     );
     if (!destinationValidity.valid) {
-      destinationMarker.clear();
       logRightClick('reject:destination-validity', () => ({
         reason: destinationValidity.reason ?? 'UNKNOWN',
         clickScreen: { x: event.clientX, y: event.clientY },
@@ -172,7 +210,8 @@ export function attachApcMoveCommand(
         resolvedShard: shard,
         distanceFromApc,
         sampledSlopeDeg,
-        maxSlopeDeg: GRADIENT_B_RED_START_DEG,
+        segmentFrom: { x: fromX, z: fromZ },
+        appended: append,
       }));
       // Future feedback hook: cursor deny state and reject SFX.
       return;
@@ -184,22 +223,20 @@ export function attachApcMoveCommand(
       resolvedShard: shard,
       distanceFromApc,
       sampledSlopeDeg,
-      maxSlopeDeg: GRADIENT_B_RED_START_DEG,
+      maxSlopeDeg: SLOPE_CLIFF_THRESHOLD_DEG,
     }));
 
-    sim.set_apc_target(worldPoint.x, worldPoint.z);
+    const wasEmpty = waypointQueue.length === 0;
+    waypointQueue.push({ x: worldPoint.x, z: worldPoint.z });
+    destinationMarker.rebuild(getApcWaypointQueue(), sim.apc_y());
+    if (wasEmpty) {
+      sim.set_apc_target(worldPoint.x, worldPoint.z);
+    }
 
     const targetX = sim.apc_target_x();
     const targetZ = sim.apc_target_z();
     const targetShard = resolveShardForPoint(targetX, targetZ);
     const clampDelta = Math.hypot(targetX - worldPoint.x, targetZ - worldPoint.z);
-
-    const markerPoint = new THREE.Vector3(
-      targetX,
-      worldPoint.y,
-      targetZ,
-    );
-    destinationMarker.showAt(markerPoint);
 
     logRightClick('accept:post-set-target', () => ({
       requestedPoint: { x: worldPoint.x, z: worldPoint.z },
@@ -207,6 +244,7 @@ export function attachApcMoveCommand(
       requestedShard: shard,
       actualTargetShard: targetShard,
       distanceFromApc,
+      appended: append,
       clampApplied: clampDelta > 1e-6,
       clampDelta,
     }));

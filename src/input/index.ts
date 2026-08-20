@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { attachApcMoveCommand } from './apcMoveCommand';
+import { getSim } from '../entityStore';
+import {
+  attachApcMoveCommand,
+  getApcWaypointQueue,
+  shiftApcWaypointQueue,
+  updateApcWaypointQueue,
+} from './apcMoveCommand';
 import { attachClickSelect } from './clickSelect';
 import { createDestinationMarkerController } from './destinationMarker';
 import { attachKeyboardShortcuts } from './keyboard';
@@ -25,10 +31,12 @@ export function initInputRouter(
 
   return {
     update: () => {
-      destinationMarker.update();
+      updateApcWaypointQueue(destinationMarker);
+      destinationMarker.updateDynamicLine();
     },
     shiftDestinationMarker: (dx: number, dz: number) => {
-      destinationMarker.shiftBy(dx, dz);
+      shiftApcWaypointQueue(dx, dz);
+      destinationMarker.shiftBy(dx, dz, getApcWaypointQueue(), getSim().apc_y());
     },
   };
 }
