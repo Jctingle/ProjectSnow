@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import { getSim } from '../entityStore';
 
+const SAMPLES_PER_SEGMENT = 12;
+const STEM_HEIGHT = 0.4;
+const LINE_Y_NUDGE = 0.05;
+
 type DebugMarkerState = {
   pins: THREE.Mesh[];
+  stems: THREE.Line[];
   staticLines: THREE.Line[];
   dynamicLine: THREE.Line | null;
   queue: { x: number; z: number }[];
@@ -20,6 +25,7 @@ export function createDestinationMarkerController(
 ): DestinationMarkerController {
   let debugMarkerState: DebugMarkerState = {
     pins: [],
+    stems: [],
     staticLines: [],
     dynamicLine: null,
     queue: [],
@@ -44,20 +50,35 @@ export function createDestinationMarkerController(
 
   const clear = (): void => {
     for (const pin of debugMarkerState.pins) disposeObject(pin);
+    for (const stem of debugMarkerState.stems) disposeLine(stem);
     for (const line of debugMarkerState.staticLines) disposeLine(line);
     if (debugMarkerState.dynamicLine) disposeLine(debugMarkerState.dynamicLine);
-    debugMarkerState = { pins: [], staticLines: [], dynamicLine: null, queue: [] };
+    debugMarkerState = { pins: [], stems: [], staticLines: [], dynamicLine: null, queue: [] };
   };
 
-  const lineGeometry = (from: THREE.Vector3, to: THREE.Vector3): THREE.BufferGeometry => {
+  // Samples SAMPLES_PER_SEGMENT intermediate terrain heights along XZ to
+  // produce a polyline that follows ground contour instead of cutting through it.
+  const terrainLineGeometry = (
+    x0: number, y0: number, z0: number,
+    x1: number, y1: number, z1: number,
+    heightAt: (x: number, z: number) => number,
+  ): THREE.BufferGeometry => {
+    const total = SAMPLES_PER_SEGMENT + 2;
+    const positions = new Float32Array(total * 3);
+    positions[0] = x0; positions[1] = y0; positions[2] = z0;
+    for (let i = 1; i <= SAMPLES_PER_SEGMENT; i++) {
+      const t = i / (SAMPLES_PER_SEGMENT + 1);
+      const x = x0 + t * (x1 - x0);
+      const z = z0 + t * (z1 - z0);
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = heightAt(x, z);
+      positions[i * 3 + 2] = z;
+    }
+    positions[(total - 1) * 3] = x1;
+    positions[(total - 1) * 3 + 1] = y1;
+    positions[(total - 1) * 3 + 2] = z1;
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      'position',
-      new THREE.Float32BufferAttribute(
-        [from.x, from.y, from.z, to.x, to.y, to.z],
-        3,
-      ),
-    );
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     return geometry;
   };
 
@@ -66,27 +87,46 @@ export function createDestinationMarkerController(
     debugMarkerState.queue = queue.map(({ x, z }) => ({ x, z }));
     const sim = getSim();
     const pinY = (x: number, z: number): number =>
-      sim.height_at_or_sample(x, z) * sim.height_mult() + 0.05;
+      sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE;
+    const heightAt = (x: number, z: number): number =>
+      sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE;
+    const lineMat = (): THREE.LineBasicMaterial =>
+      new THREE.LineBasicMaterial({ color: 0xff0000 });
 
     for (const waypoint of debugMarkerState.queue) {
+      const y = pinY(waypoint.x, waypoint.z);
+
       const pin = new THREE.Mesh(
         new THREE.SphereGeometry(0.08),
         new THREE.MeshBasicMaterial({ color: 0xff0000 }),
       );
-      pin.position.set(waypoint.x, pinY(waypoint.x, waypoint.z), waypoint.z);
+      pin.position.set(waypoint.x, y, waypoint.z);
       scene.add(pin);
       debugMarkerState.pins.push(pin);
+
+      const stemGeo = new THREE.BufferGeometry();
+      stemGeo.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute([
+          waypoint.x, y, waypoint.z,
+          waypoint.x, y + STEM_HEIGHT, waypoint.z,
+        ], 3),
+      );
+      const stem = new THREE.Line(stemGeo, lineMat());
+      scene.add(stem);
+      debugMarkerState.stems.push(stem);
     }
 
     for (let i = 1; i < debugMarkerState.queue.length; i++) {
       const from = debugMarkerState.queue[i - 1];
       const to = debugMarkerState.queue[i];
       const line = new THREE.Line(
-        lineGeometry(
-          new THREE.Vector3(from.x, pinY(from.x, from.z), from.z),
-          new THREE.Vector3(to.x, pinY(to.x, to.z), to.z),
+        terrainLineGeometry(
+          from.x, pinY(from.x, from.z), from.z,
+          to.x, pinY(to.x, to.z), to.z,
+          heightAt,
         ),
-        new THREE.LineBasicMaterial({ color: 0xff0000 }),
+        lineMat(),
       );
       scene.add(line);
       debugMarkerState.staticLines.push(line);
@@ -95,11 +135,12 @@ export function createDestinationMarkerController(
     if (debugMarkerState.queue.length > 0) {
       const first = debugMarkerState.queue[0];
       const dynamicLine = new THREE.Line(
-        lineGeometry(
-          new THREE.Vector3(sim.apc_x(), apcWorldY, sim.apc_z()),
-          new THREE.Vector3(first.x, pinY(first.x, first.z), first.z),
+        terrainLineGeometry(
+          sim.apc_x(), apcWorldY, sim.apc_z(),
+          first.x, pinY(first.x, first.z), first.z,
+          heightAt,
         ),
-        new THREE.LineBasicMaterial({ color: 0xff0000 }),
+        lineMat(),
       );
       scene.add(dynamicLine);
       debugMarkerState.dynamicLine = dynamicLine;
@@ -121,8 +162,20 @@ export function createDestinationMarkerController(
     if (!line || !first) return;
 
     const sim = getSim();
+    const x0 = sim.apc_x(), z0 = sim.apc_z(), y0 = sim.apc_y();
+    const x1 = first.x, z1 = first.z;
+    const y1 = sim.height_at_or_sample(x1, z1) * sim.height_mult() + LINE_Y_NUDGE;
+    const total = SAMPLES_PER_SEGMENT + 2;
+
     const position = line.geometry.getAttribute('position') as THREE.BufferAttribute;
-    position.setXYZ(0, sim.apc_x(), sim.apc_y(), sim.apc_z());
+    position.setXYZ(0, x0, y0, z0);
+    for (let i = 1; i <= SAMPLES_PER_SEGMENT; i++) {
+      const t = i / (SAMPLES_PER_SEGMENT + 1);
+      const x = x0 + t * (x1 - x0);
+      const z = z0 + t * (z1 - z0);
+      position.setXYZ(i, x, sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE, z);
+    }
+    position.setXYZ(total - 1, x1, y1, z1);
     position.needsUpdate = true;
     line.geometry.computeBoundingSphere();
   };
