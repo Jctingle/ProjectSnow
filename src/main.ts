@@ -11,7 +11,7 @@ import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
-import { createApcMesh, syncApcMesh } from './world/apc';
+import { createApcMesh, resizeApcMesh, setApcGridVisible, syncApcMesh } from './world/apc';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import {
   createTierOverlayMesh,
@@ -198,7 +198,13 @@ createDevPanel(
   },
   (enabled) => {
     console.log('[debug] console output', enabled ? 'enabled' : 'disabled');
-  }
+  },
+  (visible) => {
+    setApcGridVisible(apcMesh, visible);
+  },
+  (dimensions) => {
+    resizeApcMesh(apcMesh, dimensions);
+  },
 );
 updateDeployedCount(sim.deployed_unit_count());
 

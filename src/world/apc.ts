@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import type { Sim } from 'wasm-sim';
 import {
   APC_HOVER_HEIGHT,
+  APC_GRID_CELL_SIZE,
+  APC_HULL_THICKNESS,
   APC_HULL_LENGTH,
   APC_HULL_WIDTH,
   APC_ORIENTATION_SLERP_RATE,
   GROUND_SIZE,
 } from '../sim/config';
-import { DEFAULT_APC_SUPPORT_LAYOUT, type SupportLayout } from './apcSupport';
+import { getApcSupportLayout, type SupportLayout } from './apcSupport';
 
 type SupportPoint = { x: number; y: number; z: number };
 
@@ -24,12 +26,19 @@ type ApcVisualState = {
   forward: THREE.Vector3;
 };
 
-const APC_HULL_THICKNESS = 0.16;
+const APC_GRID_NAME = 'apc-grid';
 const STATIONARY_EPSILON = 1e-6;
 const PLANE_EPSILON = 1e-8;
 const MAX_DIRECTION_STEP_SQ = (GROUND_SIZE * 0.5) ** 2;
 
 const meshState = new WeakMap<THREE.Mesh, ApcVisualState>();
+const meshDimensions = new WeakMap<THREE.Mesh, ApcDimensions>();
+
+export type ApcDimensions = {
+  width: number;
+  height: number;
+  length: number;
+};
 
 const tempMovement = new THREE.Vector3();
 const tempProjected = new THREE.Vector3();
@@ -282,22 +291,118 @@ function computeHeadingDirection(
   }
 }
 
-export function createApcMesh(): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(APC_HULL_WIDTH, APC_HULL_THICKNESS, APC_HULL_LENGTH),
-    new THREE.MeshStandardMaterial({ color: 0xff8844 })
-  );
+function createApcGrid(dimensions: ApcDimensions): THREE.LineSegments {
+  const points: THREE.Vector3[] = [];
+  const halfWidth = dimensions.width * 0.5;
+  const halfHeight = dimensions.height * 0.5;
+  const halfLength = dimensions.length * 0.5;
+  const cellSize = APC_GRID_CELL_SIZE;
+  const widthCells = Math.round(dimensions.width / cellSize);
+  const heightCells = Math.round(dimensions.height / cellSize);
+  const lengthCells = Math.round(dimensions.length / cellSize);
+  const addLine = (start: THREE.Vector3, end: THREE.Vector3): void => {
+    points.push(start, end);
+  };
+
+  for (let height = 0; height <= heightCells; height += 1) {
+    const y = -halfHeight + height * cellSize;
+    for (let length = 0; length <= lengthCells; length += 1) {
+      const z = -halfLength + length * cellSize;
+      addLine(new THREE.Vector3(-halfWidth, y, z), new THREE.Vector3(halfWidth, y, z));
+    }
+  }
+
+  for (let width = 0; width <= widthCells; width += 1) {
+    const x = -halfWidth + width * cellSize;
+    for (let length = 0; length <= lengthCells; length += 1) {
+      const z = -halfLength + length * cellSize;
+      addLine(new THREE.Vector3(x, -halfHeight, z), new THREE.Vector3(x, halfHeight, z));
+    }
+  }
+
+  for (let width = 0; width <= widthCells; width += 1) {
+    const x = -halfWidth + width * cellSize;
+    for (let height = 0; height <= heightCells; height += 1) {
+      const y = -halfHeight + height * cellSize;
+      addLine(new THREE.Vector3(x, y, -halfLength), new THREE.Vector3(x, y, halfLength));
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+    points.flatMap((point) => [point.x, point.y, point.z]),
+    3,
+  ));
+  const material = new THREE.LineBasicMaterial({
+    color: 0xff0000,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const grid = new THREE.LineSegments(geometry, material);
+  grid.name = APC_GRID_NAME;
+  grid.visible = false;
+  grid.renderOrder = 1;
+  return grid;
+}
+
+function createApcHullMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: 0xff8844, transparent: true, opacity: 0.5 });
+}
+
+function addApcParts(mesh: THREE.Mesh, dimensions: ApcDimensions): void {
+  mesh.geometry = new THREE.BoxGeometry(dimensions.width, dimensions.height, dimensions.length);
+  mesh.add(createApcGrid(dimensions));
 
   const noseIndicator = new THREE.ArrowHelper(
     new THREE.Vector3(0, 0, 1),
-    new THREE.Vector3(0, APC_HULL_THICKNESS * 0.55, APC_HULL_LENGTH * 0.48),
-    APC_HULL_LENGTH * 0.28,
+    new THREE.Vector3(0, dimensions.height * 0.55, dimensions.length * 0.48),
+    dimensions.length * 0.28,
     0x33dd66,
-    APC_HULL_LENGTH * 0.12,
-    APC_HULL_LENGTH * 0.08,
+    dimensions.length * 0.12,
+    dimensions.length * 0.08,
   );
   mesh.add(noseIndicator);
+}
+
+export function createApcMesh(): THREE.Mesh {
+  const dimensions = {
+    width: APC_HULL_WIDTH,
+    height: APC_HULL_THICKNESS,
+    length: APC_HULL_LENGTH,
+  };
+  const mesh = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    createApcHullMaterial(),
+  );
+  addApcParts(mesh, dimensions);
+  meshDimensions.set(mesh, dimensions);
   return mesh;
+}
+
+export function resizeApcMesh(mesh: THREE.Mesh, dimensions: ApcDimensions): void {
+  const gridVisible = mesh.getObjectByName(APC_GRID_NAME)?.visible ?? true;
+  mesh.geometry.dispose();
+  for (const child of [...mesh.children]) {
+    if (child.name === APC_GRID_NAME || child instanceof THREE.ArrowHelper) {
+      mesh.remove(child);
+      child.traverse((object) => {
+        if (object instanceof THREE.LineSegments || object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+        }
+        if (object instanceof THREE.Material) object.dispose();
+      });
+    }
+  }
+  addApcParts(mesh, dimensions);
+  const grid = mesh.getObjectByName(APC_GRID_NAME);
+  if (grid) grid.visible = gridVisible;
+  meshDimensions.set(mesh, dimensions);
+}
+
+export function setApcGridVisible(mesh: THREE.Mesh, visible: boolean): void {
+  const grid = mesh.getObjectByName(APC_GRID_NAME);
+  if (grid) grid.visible = visible;
 }
 
 export function syncApcMesh(mesh: THREE.Mesh, sim: Sim, deltaSeconds: number): void {
@@ -310,7 +415,7 @@ export function syncApcMesh(mesh: THREE.Mesh, sim: Sim, deltaSeconds: number): v
   try {
     const supportPoints = resolveSupportPoints(
       sim,
-      DEFAULT_APC_SUPPORT_LAYOUT,
+      getApcSupportLayout(meshDimensions.get(mesh)?.width ?? APC_HULL_WIDTH, meshDimensions.get(mesh)?.length ?? APC_HULL_LENGTH),
       centerX,
       centerZ,
       state.headingOnXZ,

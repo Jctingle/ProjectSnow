@@ -138,7 +138,9 @@ export const UNIT_SPACING = 0.35;
 
 // APC hull footprint dimensions in world units.
 export const APC_HULL_LENGTH = 0.9;
-export const APC_HULL_WIDTH = 0.55;
+export const APC_HULL_WIDTH = 0.6;
+export const APC_HULL_THICKNESS = 0.3;
+export const APC_GRID_CELL_SIZE = 0.1;
 
 // Hover offset from fitted support-plane centroid.
 export const APC_HOVER_HEIGHT = 0.22;

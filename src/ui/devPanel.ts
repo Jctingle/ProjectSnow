@@ -1,6 +1,10 @@
 import type { Sim } from 'wasm-sim';
 import {
   APC_SPEED_DEFAULT,
+  APC_GRID_CELL_SIZE,
+  APC_HULL_LENGTH,
+  APC_HULL_THICKNESS,
+  APC_HULL_WIDTH,
   BLIZZARD_ALPHA_EXPONENT,
   BLIZZARD_CLEAR_RADIUS,
   BLIZZARD_FEATHER_WIDTH,
@@ -103,6 +107,8 @@ export function createDevPanel(
   onTiltShiftToggle?: (enabled: boolean) => void,
   onTiltShiftSettingsChange?: (settings: Partial<TiltShiftSettings>) => void,
   onDebugConsoleToggle?: (enabled: boolean) => void,
+  onApcGridToggle?: (visible: boolean) => void,
+  onApcDimensionsChange?: (dimensions: { width: number; height: number; length: number }) => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -329,9 +335,9 @@ export function createDevPanel(
   createSliderRow(
     {
       label: 'APC_SPEED',
-      min: 0.01,
+      min: 0.001,
       max: 1.0,
-      step: 0.01,
+      step: 0.001,
       default: APC_SPEED_DEFAULT,
       onInput: (value: number) => {
         sim.set_apc_speed(value);
@@ -339,6 +345,50 @@ export function createDevPanel(
     },
     testingPanel,
   );
+
+  const apcCubeCounts = {
+    x: Math.round(APC_HULL_WIDTH / APC_GRID_CELL_SIZE),
+    y: Math.round(APC_HULL_THICKNESS / APC_GRID_CELL_SIZE),
+    z: Math.round(APC_HULL_LENGTH / APC_GRID_CELL_SIZE),
+  };
+  const updateApcDimensions = (): void => {
+    onApcDimensionsChange?.({
+      width: apcCubeCounts.x * APC_GRID_CELL_SIZE,
+      height: apcCubeCounts.y * APC_GRID_CELL_SIZE,
+      length: apcCubeCounts.z * APC_GRID_CELL_SIZE,
+    });
+  };
+  for (const axis of ['x', 'y', 'z'] as const) {
+    createSliderRow(
+      {
+        label: `APC_${axis.toUpperCase()}_CUBES`,
+        min: 1,
+        max: 20,
+        step: 1,
+        default: apcCubeCounts[axis],
+        onInput: (value: number) => {
+          apcCubeCounts[axis] = Math.round(value);
+          updateApcDimensions();
+        },
+      },
+      testingPanel,
+    );
+  }
+
+  const apcGridRow = document.createElement('div');
+  apcGridRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const apcGridCheckbox = document.createElement('input');
+  apcGridCheckbox.type = 'checkbox';
+  apcGridCheckbox.checked = false;
+  const apcGridLabel = document.createElement('label');
+  apcGridLabel.textContent = 'Show APC grid';
+  apcGridRow.appendChild(apcGridCheckbox);
+  apcGridRow.appendChild(apcGridLabel);
+  apcGridCheckbox.addEventListener('change', () => {
+    onApcGridToggle?.(apcGridCheckbox.checked);
+  });
+  testingPanel.appendChild(apcGridRow);
 
   const blizzardFields: LocalFieldConfig[] = [
     {
