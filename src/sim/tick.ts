@@ -1,4 +1,4 @@
-import { initStore, getSim } from '../entityStore';
+import { initStore, getApcInterior, getSim } from '../entityStore';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './config';
 
 let ready = false;
@@ -20,6 +20,8 @@ export async function initSim(): Promise<void> {
 export function tick(delta: number): void {
   if (!ready) return;
   getSim().tick(delta);
+  // Interior transfer is gated by its own whole-tick counter, not by delta.
+  getApcInterior().tick();
 }
 
 export function refreshHeightmap(): void {

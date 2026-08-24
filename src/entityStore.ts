@@ -1,6 +1,13 @@
-import init, { Sim } from 'wasm-sim';
+import init, { ApcInterior, Sim } from 'wasm-sim';
 import {
+  APC_CELLS_DEFAULT_X,
+  APC_CELLS_DEFAULT_Y,
+  APC_CELLS_DEFAULT_Z,
+  APC_ENVELOPE_X,
+  APC_ENVELOPE_Y,
+  APC_ENVELOPE_Z,
   APC_SPEED_DEFAULT,
+  APC_TRANSFER_INTERVAL_TICKS,
   CRAG_FREQ,
   CRAG_STRENGTH,
   HEIGHT_MULT,
@@ -25,6 +32,7 @@ export const SEEK_APC = 0;
 export const SEEK_RANDOM = 1;
 
 let sim: Sim | null = null;
+let apcInterior: ApcInterior | null = null;
 let memory: WebAssembly.Memory;
 
 // Cached zero-copy views over WASM memory.
@@ -51,11 +59,25 @@ export async function initStore(): Promise<void> {
     APC_SPEED_DEFAULT,
     (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
+  apcInterior = new ApcInterior(
+    APC_ENVELOPE_X,
+    APC_ENVELOPE_Y,
+    APC_ENVELOPE_Z,
+    APC_CELLS_DEFAULT_X,
+    APC_CELLS_DEFAULT_Y,
+    APC_CELLS_DEFAULT_Z,
+    APC_TRANSFER_INTERVAL_TICKS
+  );
 }
 
 export function getSim(): Sim {
   if (!sim) throw new Error('initStore() has not resolved yet');
   return sim;
+}
+
+export function getApcInterior(): ApcInterior {
+  if (!apcInterior) throw new Error('initStore() has not resolved yet');
+  return apcInterior;
 }
 
 /**
@@ -124,6 +146,88 @@ export function getNeighborSlopemap(
 
 export function activeCount(): number {
   return sim ? sim.count() : 0;
+}
+
+type U8Cache = { view: Uint8Array; ptr: number; length: number } | null;
+type U32Cache = { view: Uint32Array; ptr: number; length: number } | null;
+
+const EMPTY_U8 = new Uint8Array(0);
+const EMPTY_U32 = new Uint32Array(0);
+
+// Machine arrays are reallocated when a machine is added, so the pointer is
+// compared as well as the buffer identity.
+function cacheU8(cache: U8Cache, ptr: number, length: number): U8Cache {
+  if (
+    cache &&
+    cache.ptr === ptr &&
+    cache.length === length &&
+    cache.view.buffer === memory.buffer
+  ) {
+    return cache;
+  }
+  return { view: new Uint8Array(memory.buffer, ptr, length), ptr, length };
+}
+
+function cacheU32(cache: U32Cache, ptr: number, length: number): U32Cache {
+  if (
+    cache &&
+    cache.ptr === ptr &&
+    cache.length === length &&
+    cache.view.buffer === memory.buffer
+  ) {
+    return cache;
+  }
+  return { view: new Uint32Array(memory.buffer, ptr, length), ptr, length };
+}
+
+let cellKindCache: U8Cache = null;
+let faceXCache: U8Cache = null;
+let faceYCache: U8Cache = null;
+let faceZCache: U8Cache = null;
+let machineCellsCache: U32Cache = null;
+let machineHoldingCache: U8Cache = null;
+
+/** Cell kinds across the whole envelope. Changes only on hull expansion. */
+export function getApcCellKinds(): Uint8Array {
+  const interior = getApcInterior();
+  cellKindCache = cacheU8(cellKindCache, interior.cell_kind_ptr(), interior.cell_count());
+  return cellKindCache!.view;
+}
+
+export function getApcFaceX(): Uint8Array {
+  const interior = getApcInterior();
+  faceXCache = cacheU8(faceXCache, interior.face_x_ptr(), interior.face_x_len());
+  return faceXCache!.view;
+}
+
+export function getApcFaceY(): Uint8Array {
+  const interior = getApcInterior();
+  faceYCache = cacheU8(faceYCache, interior.face_y_ptr(), interior.face_y_len());
+  return faceYCache!.view;
+}
+
+export function getApcFaceZ(): Uint8Array {
+  const interior = getApcInterior();
+  faceZCache = cacheU8(faceZCache, interior.face_z_ptr(), interior.face_z_len());
+  return faceZCache!.view;
+}
+
+export function getApcMachineCells(): Uint32Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U32;
+  machineCellsCache = cacheU32(machineCellsCache, interior.machine_cells_ptr(), count);
+  return machineCellsCache!.view;
+}
+
+
+/** The only interior array that changes on a normal frame. */
+export function getApcMachineHolding(): Uint8Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U8;
+  machineHoldingCache = cacheU8(machineHoldingCache, interior.machine_holding_ptr(), count);
+  return machineHoldingCache!.view;
 }
 
 export function spawnUnit(x: number, z: number): number {

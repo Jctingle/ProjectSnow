@@ -2,16 +2,18 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css';
-import { getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
+import { getApcInterior, getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
 import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { createBlizzardMask } from './render/blizzardMask';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { createTiltShiftEffect } from './render/tiltShiftEffect';
-import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
+import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
 import { createApcMesh, resizeApcMesh, setApcGridVisible, syncApcMesh } from './world/apc';
+import { seedApcDemoLoop } from './world/apcDemoLoop';
+import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import {
   createTierOverlayMesh,
@@ -137,6 +139,12 @@ const inputRouter = initInputRouter(camera, renderer, scene);
 // APC
 const apcMesh = createApcMesh();
 scene.add(apcMesh);
+
+const apcInterior = getApcInterior();
+seedApcDemoLoop();
+
+const apcInteriorView = createApcInteriorView();
+apcMesh.add(apcInteriorView.group);
 const blizzardMask = createBlizzardMask();
 scene.add(blizzardMask.mesh);
 
@@ -202,8 +210,22 @@ createDevPanel(
   (visible) => {
     setApcGridVisible(apcMesh, visible);
   },
-  (dimensions) => {
-    resizeApcMesh(apcMesh, dimensions);
+  (cells, reset) => {
+    if (reset) {
+      apcInterior.reset_hull_extent(cells.x, cells.y, cells.z);
+    } else {
+      apcInterior.set_hull_extent(cells.x, cells.y, cells.z);
+    }
+    seedApcDemoLoop();
+    resizeApcMesh(apcMesh, {
+      width: apcInterior.hull_w() * APC_GRID_CELL_SIZE,
+      height: apcInterior.hull_h() * APC_GRID_CELL_SIZE,
+      length: apcInterior.hull_d() * APC_GRID_CELL_SIZE,
+    });
+    apcInteriorView.rebuild();
+  },
+  (visible) => {
+    apcInteriorView.setLabelsVisible(visible);
   },
 );
 updateDeployedCount(sim.deployed_unit_count());
@@ -324,6 +346,7 @@ function animate() {
   }
 
   syncApcMesh(apcMesh, sim, frameTime);
+  apcInteriorView.sync();
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
   if (cameraFollowOn) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());

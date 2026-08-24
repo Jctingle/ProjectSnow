@@ -136,11 +136,28 @@ export const UNIT_COUNT = 25;
 // Higher values spread units farther apart; lower values cluster them tightly.
 export const UNIT_SPACING = 0.35;
 
-// APC hull footprint dimensions in world units.
-export const APC_HULL_LENGTH = 0.9;
-export const APC_HULL_WIDTH = 0.6;
-export const APC_HULL_THICKNESS = 0.3;
-export const APC_GRID_CELL_SIZE = 0.1;
+// Edge length of one interior lattice cell, in world units.
+export const APC_GRID_CELL_SIZE = 0.3;
+
+// Starting hull extent in cells (x = width, y = height, z = length).
+export const APC_CELLS_DEFAULT_X = 2;
+export const APC_CELLS_DEFAULT_Y = 1;
+export const APC_CELLS_DEFAULT_Z = 3;
+
+// Largest extent the hull can ever reach. Lattice arrays are allocated at this
+// size up front so cell indices stay stable across expansion.
+export const APC_ENVELOPE_X = 15;
+export const APC_ENVELOPE_Y = 10;
+export const APC_ENVELOPE_Z = 20;
+
+// Hull dimensions in world units, derived from the cell counts above.
+export const APC_HULL_WIDTH = APC_CELLS_DEFAULT_X * APC_GRID_CELL_SIZE;
+export const APC_HULL_THICKNESS = APC_CELLS_DEFAULT_Y * APC_GRID_CELL_SIZE;
+export const APC_HULL_LENGTH = APC_CELLS_DEFAULT_Z * APC_GRID_CELL_SIZE;
+
+// Sim ticks between machine transfer steps. An integer count rather than a
+// delta accumulator, so transfer timing cannot drift with frame rate.
+export const APC_TRANSFER_INTERVAL_TICKS = 30;
 
 // Hover offset from fitted support-plane centroid.
 export const APC_HOVER_HEIGHT = 0.22;
@@ -149,5 +166,4 @@ export const APC_HOVER_HEIGHT = 0.22;
 export const APC_ORIENTATION_SLERP_RATE = 12;
 
 // APC movement speed in world units per frame (live-tunable via dev panel).
-// Current value: UNIT_SPEED * 1.5 = 0.1 * 1.5 = 0.15
-export const APC_SPEED_DEFAULT = 0.15;
+export const APC_SPEED_DEFAULT = 0.005;

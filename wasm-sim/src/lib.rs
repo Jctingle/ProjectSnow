@@ -1,6 +1,9 @@
 use wasm_bindgen::prelude::*;
 
 mod apc;
+mod apc_interior;
+mod lattice;
+mod machines;
 mod rng;
 mod shard_ring;
 mod terrain;

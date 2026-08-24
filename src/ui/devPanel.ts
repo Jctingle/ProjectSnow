@@ -1,10 +1,12 @@
 import type { Sim } from 'wasm-sim';
 import {
   APC_SPEED_DEFAULT,
-  APC_GRID_CELL_SIZE,
-  APC_HULL_LENGTH,
-  APC_HULL_THICKNESS,
-  APC_HULL_WIDTH,
+  APC_CELLS_DEFAULT_X,
+  APC_CELLS_DEFAULT_Y,
+  APC_CELLS_DEFAULT_Z,
+  APC_ENVELOPE_X,
+  APC_ENVELOPE_Y,
+  APC_ENVELOPE_Z,
   BLIZZARD_ALPHA_EXPONENT,
   BLIZZARD_CLEAR_RADIUS,
   BLIZZARD_FEATHER_WIDTH,
@@ -108,7 +110,8 @@ export function createDevPanel(
   onTiltShiftSettingsChange?: (settings: Partial<TiltShiftSettings>) => void,
   onDebugConsoleToggle?: (enabled: boolean) => void,
   onApcGridToggle?: (visible: boolean) => void,
-  onApcDimensionsChange?: (dimensions: { width: number; height: number; length: number }) => void,
+  onApcCellsChange?: (cells: { x: number; y: number; z: number }, reset: boolean) => void,
+  onApcInteriorLabelsToggle?: (visible: boolean) => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -335,9 +338,9 @@ export function createDevPanel(
   createSliderRow(
     {
       label: 'APC_SPEED',
-      min: 0.001,
-      max: 1.0,
-      step: 0.001,
+      min: 0.0005,
+      max: 0.1,
+      step: 0.0005,
       default: APC_SPEED_DEFAULT,
       onInput: (value: number) => {
         sim.set_apc_speed(value);
@@ -346,34 +349,73 @@ export function createDevPanel(
     testingPanel,
   );
 
-  const apcCubeCounts = {
-    x: Math.round(APC_HULL_WIDTH / APC_GRID_CELL_SIZE),
-    y: Math.round(APC_HULL_THICKNESS / APC_GRID_CELL_SIZE),
-    z: Math.round(APC_HULL_LENGTH / APC_GRID_CELL_SIZE),
+  const apcCellCounts = {
+    x: APC_CELLS_DEFAULT_X,
+    y: APC_CELLS_DEFAULT_Y,
+    z: APC_CELLS_DEFAULT_Z,
   };
-  const updateApcDimensions = (): void => {
-    onApcDimensionsChange?.({
-      width: apcCubeCounts.x * APC_GRID_CELL_SIZE,
-      height: apcCubeCounts.y * APC_GRID_CELL_SIZE,
-      length: apcCubeCounts.z * APC_GRID_CELL_SIZE,
+  const apcCellMax = {
+    x: APC_ENVELOPE_X,
+    y: APC_ENVELOPE_Y,
+    z: APC_ENVELOPE_Z,
+  };
+  const updateApcDimensions = (reset = false): void => {
+    onApcCellsChange?.({ ...apcCellCounts }, reset);
+  };
+
+  const apcCellsBlock = document.createElement('div');
+  apcCellsBlock.style.cssText =
+    'display:flex; flex-direction:column; gap:4px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const apcCellsHeader = document.createElement('span');
+  apcCellsHeader.textContent = 'APC_CELLS';
+  apcCellsBlock.appendChild(apcCellsHeader);
+
+  const apcCellRefreshers = (['x', 'y', 'z'] as const).map((axis) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:8px;';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = axis.toUpperCase();
+    nameSpan.style.cssText = 'width:12px;';
+    const valueSpan = document.createElement('span');
+    valueSpan.style.cssText = 'width:56px;';
+    const addButton = document.createElement('button');
+    addButton.textContent = '+1';
+    addButton.style.cssText = 'width:40px;';
+    row.appendChild(nameSpan);
+    row.appendChild(valueSpan);
+    row.appendChild(addButton);
+    apcCellsBlock.appendChild(row);
+
+    const refresh = (): void => {
+      valueSpan.textContent = `${apcCellCounts[axis]} / ${apcCellMax[axis]}`;
+      addButton.disabled = apcCellCounts[axis] >= apcCellMax[axis];
+    };
+
+    addButton.addEventListener('click', () => {
+      if (apcCellCounts[axis] >= apcCellMax[axis]) return;
+      apcCellCounts[axis] += 1;
+      refresh();
+      updateApcDimensions();
     });
-  };
-  for (const axis of ['x', 'y', 'z'] as const) {
-    createSliderRow(
-      {
-        label: `APC_${axis.toUpperCase()}_CUBES`,
-        min: 1,
-        max: 20,
-        step: 1,
-        default: apcCubeCounts[axis],
-        onInput: (value: number) => {
-          apcCubeCounts[axis] = Math.round(value);
-          updateApcDimensions();
-        },
-      },
-      testingPanel,
-    );
-  }
+
+    return refresh;
+  });
+
+  // Expansion is additive by design; reset exists so the panel is reusable without a page reload.
+  const apcCellsReset = document.createElement('button');
+  apcCellsReset.textContent = 'Reset';
+  apcCellsReset.style.cssText = 'align-self:flex-start;';
+  apcCellsReset.addEventListener('click', () => {
+    apcCellCounts.x = APC_CELLS_DEFAULT_X;
+    apcCellCounts.y = APC_CELLS_DEFAULT_Y;
+    apcCellCounts.z = APC_CELLS_DEFAULT_Z;
+    for (const refresh of apcCellRefreshers) refresh();
+    updateApcDimensions(true);
+  });
+  apcCellsBlock.appendChild(apcCellsReset);
+
+  for (const refresh of apcCellRefreshers) refresh();
+  testingPanel.appendChild(apcCellsBlock);
 
   const apcGridRow = document.createElement('div');
   apcGridRow.style.cssText =
@@ -389,6 +431,21 @@ export function createDevPanel(
     onApcGridToggle?.(apcGridCheckbox.checked);
   });
   testingPanel.appendChild(apcGridRow);
+
+  const interiorLabelRow = document.createElement('div');
+  interiorLabelRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const interiorLabelCheckbox = document.createElement('input');
+  interiorLabelCheckbox.type = 'checkbox';
+  interiorLabelCheckbox.checked = false;
+  const interiorLabelLabel = document.createElement('label');
+  interiorLabelLabel.textContent = 'Show cell indices (focus level)';
+  interiorLabelRow.appendChild(interiorLabelCheckbox);
+  interiorLabelRow.appendChild(interiorLabelLabel);
+  interiorLabelCheckbox.addEventListener('change', () => {
+    onApcInteriorLabelsToggle?.(interiorLabelCheckbox.checked);
+  });
+  testingPanel.appendChild(interiorLabelRow);
 
   const blizzardFields: LocalFieldConfig[] = [
     {
