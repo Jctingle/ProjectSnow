@@ -3,8 +3,17 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css';
 import { getApcInterior, getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
-import { initCameraControls, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
+import { initCameraControls, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
 import { initInputRouter } from './input/index';
+import { attachFocusOrbitControls } from './input/focusOrbit';
+import {
+  isFocusMode,
+  restoreCameraSnapshot,
+  saveCameraSnapshot,
+  setFocusMode,
+  getFocusAzimuth,
+  resetFocusAzimuth,
+} from './focusMode';
 import { createBlizzardMask } from './render/blizzardMask';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { createTiltShiftEffect } from './render/tiltShiftEffect';
@@ -169,6 +178,27 @@ regenButton.addEventListener('click', () => {
   console.log('[terrain] regenerated with seed', seed);
   rebuildGroundMesh();
 });
+
+const focusButton = document.createElement('button');
+focusButton.textContent = 'Focus APC Interior';
+focusButton.style.cssText =
+  'position:fixed; top:12px; right:180px; z-index:10; padding:8px 12px; font-family:sans-serif; font-size:13px; cursor:pointer;';
+document.body.appendChild(focusButton);
+
+focusButton.addEventListener('click', () => {
+  if (isFocusMode()) {
+    setFocusMode(false);
+    restoreCameraSnapshot(camera);
+    focusButton.textContent = 'Focus APC Interior';
+  } else {
+    saveCameraSnapshot(camera);
+    resetFocusAzimuth();
+    setFocusMode(true);
+    focusButton.textContent = 'Exit Focus Mode';
+  }
+});
+
+attachFocusOrbitControls(renderer.domElement);
 
 createDevPanel(
   sim,
@@ -348,7 +378,18 @@ function animate() {
   syncApcMesh(apcMesh, sim, frameTime);
   apcInteriorView.sync();
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
-  if (cameraFollowOn) {
+  if (isFocusMode()) {
+    updateFocusCamera(
+      camera,
+      sim.apc_x(),
+      sim.apc_y(),
+      sim.apc_z(),
+      apcInterior.hull_w() * APC_GRID_CELL_SIZE,
+      apcInterior.hull_h() * APC_GRID_CELL_SIZE,
+      apcInterior.hull_d() * APC_GRID_CELL_SIZE,
+      getFocusAzimuth(),
+    );
+  } else if (cameraFollowOn) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
   }
   inputRouter.update();

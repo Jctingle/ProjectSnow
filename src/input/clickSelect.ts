@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isFocusMode } from '../focusMode';
 import { getGroundClickPoint } from './raycast';
 
 export function attachClickSelect(
@@ -9,6 +10,10 @@ export function attachClickSelect(
 
   canvas.addEventListener('click', (event: MouseEvent) => {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (isFocusMode()) {
       return;
     }
 

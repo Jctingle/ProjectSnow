@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getSim, getSlopemap } from '../entityStore';
+import { isFocusMode } from '../focusMode';
 import {
   DEBUG_INPUT_LOGGING,
   GROUND_SIZE,
@@ -107,6 +108,8 @@ export function attachApcMoveCommand(
 
   canvas.addEventListener('contextmenu', (event: MouseEvent) => {
     event.preventDefault();
+
+    if (isFocusMode()) return;
 
     const sim = getSim();
     const apcX = sim.apc_x();

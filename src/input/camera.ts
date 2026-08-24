@@ -31,6 +31,48 @@ export function setCameraFollowEnabled(enabled: boolean): void {
   cameraFollowEnabled = enabled;
 }
 
+const FOCUS_PADDING = 1.6;
+const FOCUS_MIN_VIEW_SIZE = 0.5;
+// Fixed elevation of the halo ring, matching the (1,1,1) iso angle the default azimuth starts at.
+const FOCUS_ELEVATION = Math.asin(1 / Math.sqrt(3));
+const FOCUS_HORIZ = Math.cos(FOCUS_ELEVATION);
+
+// Frames the APC hull tightly, scaling to hull size so it stays valid as the hull grows.
+// `azimuth` is the halo-ring rotation angle (radians) around the APC; elevation is fixed.
+export function updateFocusCamera(
+  camera: THREE.OrthographicCamera,
+  ax: number,
+  ay: number,
+  az: number,
+  hullWidth: number,
+  hullHeight: number,
+  hullLength: number,
+  azimuth: number,
+): void {
+  const aspect = window.innerWidth / window.innerHeight;
+  const radius =
+    0.5 * Math.sqrt(hullWidth * hullWidth + hullHeight * hullHeight + hullLength * hullLength);
+  const viewSize = Math.max(radius * FOCUS_PADDING, FOCUS_MIN_VIEW_SIZE);
+
+  camera.top    =  viewSize * 0.5;
+  camera.bottom = -viewSize * 0.5;
+  camera.right  =  viewSize * aspect * 0.5;
+  camera.left   = -viewSize * aspect * 0.5;
+
+  const distance = radius * 4 + 1;
+  const dirX = FOCUS_HORIZ * Math.cos(azimuth);
+  const dirY = Math.sin(FOCUS_ELEVATION);
+  const dirZ = FOCUS_HORIZ * Math.sin(azimuth);
+  camera.position.set(
+    ax + dirX * distance,
+    ay + dirY * distance,
+    az + dirZ * distance,
+  );
+  camera.lookAt(ax, ay, az);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
+
 export function initCameraControls(
   camera: THREE.OrthographicCamera,
   canvas: HTMLCanvasElement,
