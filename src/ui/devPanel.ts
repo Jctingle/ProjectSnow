@@ -112,6 +112,8 @@ export function createDevPanel(
   onApcGridToggle?: (visible: boolean) => void,
   onApcCellsChange?: (cells: { x: number; y: number; z: number }, reset: boolean) => void,
   onApcInteriorLabelsToggle?: (visible: boolean) => void,
+  onApcHullToggle?: (visible: boolean) => void,
+  onApcTracerToggle?: (enabled: boolean) => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -431,6 +433,36 @@ export function createDevPanel(
     onApcGridToggle?.(apcGridCheckbox.checked);
   });
   testingPanel.appendChild(apcGridRow);
+
+  const apcHullRow = document.createElement('div');
+  apcHullRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const apcHullCheckbox = document.createElement('input');
+  apcHullCheckbox.type = 'checkbox';
+  apcHullCheckbox.checked = true;
+  const apcHullLabel = document.createElement('label');
+  apcHullLabel.textContent = 'Show APC hull';
+  apcHullRow.appendChild(apcHullCheckbox);
+  apcHullRow.appendChild(apcHullLabel);
+  apcHullCheckbox.addEventListener('change', () => {
+    onApcHullToggle?.(apcHullCheckbox.checked);
+  });
+  testingPanel.appendChild(apcHullRow);
+
+  const apcTracerRow = document.createElement('div');
+  apcTracerRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const apcTracerCheckbox = document.createElement('input');
+  apcTracerCheckbox.type = 'checkbox';
+  apcTracerCheckbox.checked = true;
+  const apcTracerLabel = document.createElement('label');
+  apcTracerLabel.textContent = 'Cell tracer demo';
+  apcTracerRow.appendChild(apcTracerCheckbox);
+  apcTracerRow.appendChild(apcTracerLabel);
+  apcTracerCheckbox.addEventListener('change', () => {
+    onApcTracerToggle?.(apcTracerCheckbox.checked);
+  });
+  testingPanel.appendChild(apcTracerRow);
 
   const interiorLabelRow = document.createElement('div');
   interiorLabelRow.style.cssText =

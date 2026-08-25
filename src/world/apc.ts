@@ -448,6 +448,12 @@ export function setApcGridVisible(mesh: THREE.Mesh, visible: boolean): void {
   if (grid) grid.visible = visible;
 }
 
+/// Hides only the hull shell, leaving the grid and interior children drawn.
+export function setApcHullVisible(mesh: THREE.Mesh, visible: boolean): void {
+  const material = mesh.material as THREE.Material;
+  material.visible = visible;
+}
+
 /// Focused floor turns green, floors below stay red and dimmed, floors above hide.
 /// Re-applied cheaply every frame, so it also covers grids rebuilt by a resize.
 export function setApcGridFocus(

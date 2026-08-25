@@ -1,11 +1,17 @@
 import { Dir, MachineKind } from 'wasm-sim';
 import { getApcInterior } from '../entityStore';
 
-// Temporary Stage 1 scaffolding: fills the hull with machines wired into a
-// closed loop so one product visits every cell. Delete once real placement
-// exists.
+// Temporary scaffolding: wires every cell of each floor into a closed loop so
+// one product traces the whole floor. Delete once real placement exists.
 
 type Cell = { x: number; z: number };
+
+let tracerEnabled = true;
+
+export function setApcDemoLoopEnabled(enabled: boolean): void {
+  tracerEnabled = enabled;
+  seedApcDemoLoop();
+}
 
 /**
  * Comb-shaped Hamiltonian cycle over a w x d grid: one row along z = 0, teeth
@@ -47,6 +53,7 @@ export function seedApcDemoLoop(): void {
   // Rebuilt wholesale: the ring's shape changes with the hull, so surviving
   // machines would keep output faces belonging to the previous layout.
   interior.clear_machines();
+  if (!tracerEnabled) return;
 
   const ring = levelRing(interior.hull_w(), interior.hull_d());
   if (ring.length < 2) return;

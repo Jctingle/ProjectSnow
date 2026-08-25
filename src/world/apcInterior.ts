@@ -9,6 +9,9 @@ const PRODUCT_FILL_RATIO = 0.34;
 const LABEL_CELL_PIXELS = 64;
 /// Floors below the focused one stay readable as context; floors above are hidden outright.
 const BELOW_LEVEL_OPACITY = 0.22;
+const HOVER_COLOR = 0x40e0d0;
+const SELECT_COLOR = 0x2266ff;
+const HIGHLIGHT_FILL_RATIO = 0.92;
 
 export type ApcInteriorView = {
   group: THREE.Group;
@@ -17,7 +20,10 @@ export type ApcInteriorView = {
   setFocusLevel(level: number): void;
   focusLevel(): number;
   setSubfocusEnabled(enabled: boolean): void;
-  cellAt(level: number, instanceId: number): number;
+  pickCell(ndc: THREE.Vector2, camera: THREE.Camera): number;
+  setHoveredCell(cell: number): void;
+  setSelectedCell(cell: number): void;
+  selectedCell(): number;
   setLabelsVisible(visible: boolean): void;
   dispose(): void;
 };
@@ -30,7 +36,6 @@ type LevelView = {
   machineMaterial: THREE.MeshStandardMaterial;
   productMaterial: THREE.MeshStandardMaterial;
   positions: Float32Array;
-  cells: Int32Array;
   slots: Int32Array;
   count: number;
 };
@@ -126,6 +131,95 @@ export function createApcInteriorView(): ApcInteriorView {
   const identityQuaternion = new THREE.Quaternion();
   const scratchScale = new THREE.Vector3();
 
+  const pickRaycaster = new THREE.Raycaster();
+  const localRay = new THREE.Ray();
+  const inverseWorld = new THREE.Matrix4();
+
+  let hoveredCell = -1;
+  let selectedCell = -1;
+
+  const highlightGeometry = new THREE.BoxGeometry(
+    size * HIGHLIGHT_FILL_RATIO,
+    size * HIGHLIGHT_FILL_RATIO,
+    size * HIGHLIGHT_FILL_RATIO,
+  );
+  const makeHighlight = (color: number, opacity: number): THREE.Mesh => {
+    const mesh = new THREE.Mesh(
+      highlightGeometry,
+      // Ignores depth like the grid and labels: the hull writes depth in the
+      // transparent pass, which would otherwise bury it.
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    mesh.visible = false;
+    mesh.renderOrder = 900;
+    group.add(mesh);
+    return mesh;
+  };
+  const hoverMesh = makeHighlight(HOVER_COLOR, 0.45);
+  const selectMesh = makeHighlight(SELECT_COLOR, 0.6);
+
+  function cellToCoords(cell: number): { x: number; y: number; z: number } | null {
+    if (cell < 0) return null;
+    const interior = getApcInterior();
+    const stride = interior.envelope_w() * interior.envelope_d();
+    const y = Math.floor(cell / stride);
+    const remainder = cell % stride;
+    return { x: remainder % interior.envelope_w(), y, z: Math.floor(remainder / interior.envelope_w()) };
+  }
+
+  function placeHighlight(mesh: THREE.Mesh, cell: number): void {
+    const coords = cellToCoords(cell);
+    if (!coords || coords.y !== level) {
+      mesh.visible = false;
+      return;
+    }
+    cellCentre(coords.x, coords.y, coords.z, hull, scratchPosition);
+    mesh.position.copy(scratchPosition);
+    mesh.visible = true;
+  }
+
+  function updateHighlights(): void {
+    placeHighlight(selectMesh, selectedCell);
+    // A selected cell keeps its blue rather than flickering to hover turquoise.
+    placeHighlight(hoverMesh, hoveredCell === selectedCell ? -1 : hoveredCell);
+  }
+
+  /// Intersects the focused floor's plane in APC-local space rather than
+  /// raycasting geometry, so empty cells pick exactly like occupied ones.
+  /// No `t >= 0` gate: this camera's ortho depth range makes that rejection
+  /// unreliable, and the manual solve does not need it.
+  function pickCell(ndc: THREE.Vector2, camera: THREE.Camera): number {
+    if (hull.h === 0 || hull.w === 0 || hull.d === 0) return -1;
+
+    pickRaycaster.setFromCamera(ndc, camera);
+    inverseWorld.copy(group.matrixWorld).invert();
+    localRay.copy(pickRaycaster.ray).applyMatrix4(inverseWorld);
+    if (Math.abs(localRay.direction.y) < 1e-8) return -1;
+
+    const planeY = -hull.h * size * 0.5 + (level + 0.5) * size;
+    const t = (planeY - localRay.origin.y) / localRay.direction.y;
+    const localX = localRay.origin.x + localRay.direction.x * t;
+    const localZ = localRay.origin.z + localRay.direction.z * t;
+
+    const cx = Math.floor((localX + hull.w * size * 0.5) / size);
+    const cz = Math.floor((localZ + hull.d * size * 0.5) / size);
+    if (cx < 0 || cx >= hull.w || cz < 0 || cz >= hull.d) return -1;
+
+    return getApcInterior().cell_index(cx, level, cz);
+  }
+
+  function clearPicks(): void {
+    hoveredCell = -1;
+    selectedCell = -1;
+    updateHighlights();
+  }
+
   function clearLevels(): void {
     for (const lv of levels) {
       group.remove(lv.machines);
@@ -154,12 +248,15 @@ export function createApcInteriorView(): ApcInteriorView {
       transparent: true,
       opacity: 0.9,
     });
+    // The marker sits inside its machine cube, so it has to ignore depth or the
+    // cube's front face occludes it entirely.
     const productMaterial = new THREE.MeshStandardMaterial({
       color: PRODUCT_COLOR,
       emissive: PRODUCT_COLOR,
       emissiveIntensity: 0.6,
       transparent: true,
       opacity: 1,
+      depthTest: false,
     });
 
     const machines = new THREE.InstancedMesh(machineGeometry, machineMaterial, capacity);
@@ -181,7 +278,6 @@ export function createApcInteriorView(): ApcInteriorView {
       machineMaterial,
       productMaterial,
       positions: new Float32Array(capacity * 3),
-      cells: new Int32Array(capacity).fill(-1),
       slots: new Int32Array(capacity).fill(-1),
       count: 0,
     };
@@ -251,7 +347,6 @@ export function createApcInteriorView(): ApcInteriorView {
 
       const local = target.count;
       target.count += 1;
-      target.cells[local] = cell;
       target.slots[local] = slot;
 
       cellCentre(x, y, z, hull, scratchPosition);
@@ -274,6 +369,7 @@ export function createApcInteriorView(): ApcInteriorView {
 
     applyVisibility();
     buildLabels();
+    updateHighlights();
     sync();
   }
 
@@ -312,6 +408,8 @@ export function createApcInteriorView(): ApcInteriorView {
       const clamped = Math.min(Math.max(0, Math.round(next)), Math.max(0, hull.h - 1));
       if (clamped === level) return;
       level = clamped;
+      // Scrolling away from a floor drops its selection rather than carrying it.
+      clearPicks();
       applyVisibility();
       buildLabels();
     },
@@ -319,15 +417,22 @@ export function createApcInteriorView(): ApcInteriorView {
     setSubfocusEnabled(enabled: boolean) {
       if (enabled === subfocusEnabled) return;
       subfocusEnabled = enabled;
+      if (!enabled) clearPicks();
       applyVisibility();
       if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
     },
-    /// Maps a raycast instanceId back to its sim cell; -1 when out of range.
-    cellAt(targetLevel: number, instanceId: number) {
-      const lv = levels[targetLevel];
-      if (!lv || instanceId < 0 || instanceId >= lv.count) return -1;
-      return lv.cells[instanceId];
+    pickCell,
+    setHoveredCell(cell: number) {
+      if (cell === hoveredCell) return;
+      hoveredCell = cell;
+      updateHighlights();
     },
+    setSelectedCell(cell: number) {
+      if (cell === selectedCell) return;
+      selectedCell = cell;
+      updateHighlights();
+    },
+    selectedCell: () => selectedCell,
     setLabelsVisible(visible: boolean) {
       labelsVisible = visible;
       if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
@@ -337,6 +442,9 @@ export function createApcInteriorView(): ApcInteriorView {
       clearLabels();
       machineGeometry.dispose();
       productGeometry.dispose();
+      highlightGeometry.dispose();
+      (hoverMesh.material as THREE.Material).dispose();
+      (selectMesh.material as THREE.Material).dispose();
     },
   };
 }

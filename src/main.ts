@@ -7,6 +7,7 @@ import { initCameraControls, setCameraFollowEnabled, updateCameraFollow, updateF
 import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
 import { attachFocusFloorControls } from './input/focusFloor';
+import { attachInteriorPicking } from './input/interiorPick';
 import {
   isFocusMode,
   restoreCameraSnapshot,
@@ -23,8 +24,8 @@ import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
-import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, syncApcMesh } from './world/apc';
-import { seedApcDemoLoop } from './world/apcDemoLoop';
+import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setApcHullVisible, syncApcMesh } from './world/apc';
+import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import {
@@ -211,6 +212,7 @@ focusButton.addEventListener('click', () => {
 
 attachFocusOrbitControls(renderer.domElement);
 attachFocusFloorControls(renderer.domElement);
+attachInteriorPicking(renderer.domElement, camera, apcInteriorView);
 
 const focusTarget = new THREE.Vector3();
 
@@ -271,6 +273,13 @@ createDevPanel(
   },
   (visible) => {
     apcInteriorView.setLabelsVisible(visible);
+  },
+  (visible) => {
+    setApcHullVisible(apcMesh, visible);
+  },
+  (enabled) => {
+    setApcDemoLoopEnabled(enabled);
+    apcInteriorView.rebuild();
   },
 );
 updateDeployedCount(sim.deployed_unit_count());
