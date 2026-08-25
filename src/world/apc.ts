@@ -27,6 +27,8 @@ type ApcVisualState = {
 };
 
 const APC_GRID_NAME = 'apc-grid';
+const APC_GRID_COLOR_BELOW = 0xff0000;
+const APC_GRID_COLOR_FOCUSED = 0x00ff66;
 const STATIONARY_EPSILON = 1e-6;
 const PLANE_EPSILON = 1e-8;
 const MAX_DIRECTION_STEP_SQ = (GROUND_SIZE * 0.5) ** 2;
@@ -291,8 +293,54 @@ function computeHeadingDirection(
   }
 }
 
-function createApcGrid(dimensions: ApcDimensions): THREE.LineSegments {
-  const points: THREE.Vector3[] = [];
+function pushFaceGrid(
+  points: THREE.Vector3[],
+  y: number,
+  halfWidth: number,
+  halfLength: number,
+  widthCells: number,
+  lengthCells: number,
+  cellSize: number,
+): void {
+  for (let length = 0; length <= lengthCells; length += 1) {
+    const z = -halfLength + length * cellSize;
+    points.push(new THREE.Vector3(-halfWidth, y, z), new THREE.Vector3(halfWidth, y, z));
+  }
+  for (let width = 0; width <= widthCells; width += 1) {
+    const x = -halfWidth + width * cellSize;
+    points.push(new THREE.Vector3(x, y, -halfLength), new THREE.Vector3(x, y, halfLength));
+  }
+}
+
+function buildGridSegments(
+  points: THREE.Vector3[],
+  level: number,
+  kind: 'slab' | 'ceiling',
+): THREE.LineSegments {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+    points.flatMap((point) => [point.x, point.y, point.z]),
+    3,
+  ));
+  const material = new THREE.LineBasicMaterial({
+    color: APC_GRID_COLOR_BELOW,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const segments = new THREE.LineSegments(geometry, material);
+  segments.userData.level = level;
+  segments.userData.kind = kind;
+  return segments;
+}
+
+/**
+ * One slab plus one ceiling per floor so sub-focus can recolour and hide floors
+ * individually. A slab owns its floor plane and vertical edges; the ceiling is
+ * separate because it is only drawn for the focused floor and the top of the
+ * hull, which keeps adjacent floors from drawing the same plane twice.
+ */
+function createApcGrid(dimensions: ApcDimensions): THREE.Group {
   const halfWidth = dimensions.width * 0.5;
   const halfHeight = dimensions.height * 0.5;
   const halfLength = dimensions.length * 0.5;
@@ -300,50 +348,43 @@ function createApcGrid(dimensions: ApcDimensions): THREE.LineSegments {
   const widthCells = Math.round(dimensions.width / cellSize);
   const heightCells = Math.round(dimensions.height / cellSize);
   const lengthCells = Math.round(dimensions.length / cellSize);
-  const addLine = (start: THREE.Vector3, end: THREE.Vector3): void => {
-    points.push(start, end);
-  };
 
-  for (let height = 0; height <= heightCells; height += 1) {
-    const y = -halfHeight + height * cellSize;
-    for (let length = 0; length <= lengthCells; length += 1) {
-      const z = -halfLength + length * cellSize;
-      addLine(new THREE.Vector3(-halfWidth, y, z), new THREE.Vector3(halfWidth, y, z));
+  const group = new THREE.Group();
+  group.name = APC_GRID_NAME;
+  group.visible = false;
+  group.renderOrder = 1;
+  group.userData.topLevel = heightCells - 1;
+
+  for (let level = 0; level < heightCells; level += 1) {
+    const points: THREE.Vector3[] = [];
+    const y = -halfHeight + level * cellSize;
+    pushFaceGrid(points, y, halfWidth, halfLength, widthCells, lengthCells, cellSize);
+
+    for (let width = 0; width <= widthCells; width += 1) {
+      const x = -halfWidth + width * cellSize;
+      for (let length = 0; length <= lengthCells; length += 1) {
+        const z = -halfLength + length * cellSize;
+        points.push(new THREE.Vector3(x, y, z), new THREE.Vector3(x, y + cellSize, z));
+      }
     }
+    group.add(buildGridSegments(points, level, 'slab'));
+
+    const ceilingPoints: THREE.Vector3[] = [];
+    pushFaceGrid(
+      ceilingPoints,
+      y + cellSize,
+      halfWidth,
+      halfLength,
+      widthCells,
+      lengthCells,
+      cellSize,
+    );
+    const ceiling = buildGridSegments(ceilingPoints, level, 'ceiling');
+    ceiling.visible = level === heightCells - 1;
+    group.add(ceiling);
   }
 
-  for (let width = 0; width <= widthCells; width += 1) {
-    const x = -halfWidth + width * cellSize;
-    for (let length = 0; length <= lengthCells; length += 1) {
-      const z = -halfLength + length * cellSize;
-      addLine(new THREE.Vector3(x, -halfHeight, z), new THREE.Vector3(x, halfHeight, z));
-    }
-  }
-
-  for (let width = 0; width <= widthCells; width += 1) {
-    const x = -halfWidth + width * cellSize;
-    for (let height = 0; height <= heightCells; height += 1) {
-      const y = -halfHeight + height * cellSize;
-      addLine(new THREE.Vector3(x, y, -halfLength), new THREE.Vector3(x, y, halfLength));
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(
-    points.flatMap((point) => [point.x, point.y, point.z]),
-    3,
-  ));
-  const material = new THREE.LineBasicMaterial({
-    color: 0xff0000,
-    depthTest: false,
-    transparent: true,
-    opacity: 0.9,
-  });
-  const grid = new THREE.LineSegments(geometry, material);
-  grid.name = APC_GRID_NAME;
-  grid.visible = false;
-  grid.renderOrder = 1;
-  return grid;
+  return group;
 }
 
 function createApcHullMaterial(): THREE.MeshStandardMaterial {
@@ -389,8 +430,10 @@ export function resizeApcMesh(mesh: THREE.Mesh, dimensions: ApcDimensions): void
       child.traverse((object) => {
         if (object instanceof THREE.LineSegments || object instanceof THREE.Mesh) {
           object.geometry.dispose();
+          const material = object.material;
+          if (Array.isArray(material)) material.forEach((m) => m.dispose());
+          else material.dispose();
         }
-        if (object instanceof THREE.Material) object.dispose();
       });
     }
   }
@@ -405,17 +448,57 @@ export function setApcGridVisible(mesh: THREE.Mesh, visible: boolean): void {
   if (grid) grid.visible = visible;
 }
 
+/// Focused floor turns green, floors below stay red and dimmed, floors above hide.
+/// Re-applied cheaply every frame, so it also covers grids rebuilt by a resize.
+export function setApcGridFocus(
+  mesh: THREE.Mesh,
+  focusLevel: number,
+  subfocusEnabled: boolean,
+): void {
+  const grid = mesh.getObjectByName(APC_GRID_NAME);
+  if (!grid) return;
+
+  const key = subfocusEnabled ? focusLevel : -1;
+  if (grid.userData.appliedFocus === key) return;
+  grid.userData.appliedFocus = key;
+
+  const topLevel = grid.userData.topLevel as number;
+
+  for (const child of grid.children) {
+    if (!(child instanceof THREE.LineSegments)) continue;
+    const level = child.userData.level as number;
+    const isCeiling = child.userData.kind === 'ceiling';
+    const material = child.material as THREE.LineBasicMaterial;
+
+    if (!subfocusEnabled) {
+      child.visible = !isCeiling || level === topLevel;
+      material.color.setHex(APC_GRID_COLOR_BELOW);
+      material.opacity = 0.9;
+      continue;
+    }
+
+    const focused = level === focusLevel;
+    child.visible = isCeiling ? focused : level <= focusLevel;
+    material.color.setHex(focused ? APC_GRID_COLOR_FOCUSED : APC_GRID_COLOR_BELOW);
+    material.opacity = focused ? 0.95 : 0.3;
+  }
+}
+
 export function syncApcMesh(mesh: THREE.Mesh, sim: Sim, deltaSeconds: number): void {
   const state = getOrCreateState(mesh, sim);
   const centerX = sim.apc_x();
   const centerZ = sim.apc_z();
+  const dimensions = meshDimensions.get(mesh);
 
   computeHeadingDirection(state, centerX, centerZ, sim.apc_target_x(), sim.apc_target_z());
 
   try {
     const supportPoints = resolveSupportPoints(
       sim,
-      getApcSupportLayout(meshDimensions.get(mesh)?.width ?? APC_HULL_WIDTH, meshDimensions.get(mesh)?.length ?? APC_HULL_LENGTH),
+      getApcSupportLayout(
+        dimensions?.width ?? APC_HULL_WIDTH,
+        dimensions?.length ?? APC_HULL_LENGTH,
+      ),
       centerX,
       centerZ,
       state.headingOnXZ,
@@ -458,7 +541,12 @@ export function syncApcMesh(mesh: THREE.Mesh, sim: Sim, deltaSeconds: number): v
     state.forward.set(0, 0, 1).applyQuaternion(mesh.quaternion).normalize();
     tempSmoothedUp.set(0, 1, 0).applyQuaternion(mesh.quaternion).normalize();
 
-    mesh.position.copy(fit.centroid).addScaledVector(tempSmoothedUp, APC_HOVER_HEIGHT);
+    // Hull geometry is centred on the mesh origin, so the lift must clear half
+    // the hull or a taller interior sinks the lower floors into the terrain.
+    const halfHeight = (dimensions?.height ?? APC_HULL_THICKNESS) * 0.5;
+    mesh.position
+      .copy(fit.centroid)
+      .addScaledVector(tempSmoothedUp, APC_HOVER_HEIGHT + halfHeight);
   } catch (error) {
     console.error('[apc] support-plane solve failed', error);
   }

@@ -7,6 +7,8 @@ const PRODUCT_COLOR = 0xffdd33;
 const MACHINE_FILL_RATIO = 0.78;
 const PRODUCT_FILL_RATIO = 0.34;
 const LABEL_CELL_PIXELS = 64;
+/// Floors below the focused one stay readable as context; floors above are hidden outright.
+const BELOW_LEVEL_OPACITY = 0.22;
 
 export type ApcInteriorView = {
   group: THREE.Group;
@@ -14,15 +16,34 @@ export type ApcInteriorView = {
   sync(): void;
   setFocusLevel(level: number): void;
   focusLevel(): number;
+  setSubfocusEnabled(enabled: boolean): void;
+  cellAt(level: number, instanceId: number): number;
   setLabelsVisible(visible: boolean): void;
   dispose(): void;
 };
 
 type Hull = { w: number; h: number; d: number };
 
+type LevelView = {
+  machines: THREE.InstancedMesh;
+  products: THREE.InstancedMesh;
+  machineMaterial: THREE.MeshStandardMaterial;
+  productMaterial: THREE.MeshStandardMaterial;
+  positions: Float32Array;
+  cells: Int32Array;
+  slots: Int32Array;
+  count: number;
+};
+
 function readHull(): Hull {
   const interior = getApcInterior();
   return { w: interior.hull_w(), h: interior.hull_h(), d: interior.hull_d() };
+}
+
+/// Seam for multi-floor rooms: a room spanning floors will report its ground
+/// floor here instead of the cell's own Y.
+function displayLevel(cellY: number): number {
+  return cellY;
 }
 
 /// Cell centre in APC-local space; the hull box is centred on the mesh origin.
@@ -33,17 +54,6 @@ function cellCentre(x: number, y: number, z: number, hull: Hull, out: THREE.Vect
     -hull.h * size * 0.5 + (y + 0.5) * size,
     -hull.d * size * 0.5 + (z + 0.5) * size,
   );
-}
-
-function disposeObject(object: THREE.Object3D): void {
-  object.traverse((child) => {
-    if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
-      child.geometry.dispose();
-      const material = child.material;
-      if (Array.isArray(material)) material.forEach((m) => m.dispose());
-      else material.dispose();
-    }
-  });
 }
 
 /**
@@ -96,37 +106,107 @@ export function createApcInteriorView(): ApcInteriorView {
   const group = new THREE.Group();
   group.name = 'apc-interior';
 
-  let machineMesh: THREE.InstancedMesh | null = null;
-  let productMesh: THREE.InstancedMesh | null = null;
+  const size = APC_GRID_CELL_SIZE;
+  const machineGeometry = new THREE.BoxGeometry(
+    size * MACHINE_FILL_RATIO,
+    size * MACHINE_FILL_RATIO,
+    size * MACHINE_FILL_RATIO,
+  );
+  const productGeometry = new THREE.SphereGeometry(size * PRODUCT_FILL_RATIO * 0.5, 10, 8);
+
+  let levels: LevelView[] = [];
   let labelMesh: THREE.Mesh | null = null;
   let labelsVisible = false;
+  let subfocusEnabled = false;
   let level = 0;
   let hull: Hull = readHull();
 
   const scratchMatrix = new THREE.Matrix4();
   const scratchPosition = new THREE.Vector3();
-  const scratchQuaternion = new THREE.Quaternion();
+  const identityQuaternion = new THREE.Quaternion();
   const scratchScale = new THREE.Vector3();
 
-  function clearChildren(): void {
-    for (const child of [...group.children]) {
-      group.remove(child);
-      disposeObject(child);
+  function clearLevels(): void {
+    for (const lv of levels) {
+      group.remove(lv.machines);
+      group.remove(lv.products);
+      lv.machineMaterial.dispose();
+      lv.productMaterial.dispose();
     }
-    if (labelMesh) {
-      const material = labelMesh.material as THREE.MeshBasicMaterial;
-      material.map?.dispose();
-    }
-    machineMesh = null;
-    productMesh = null;
+    levels = [];
+  }
+
+  function clearLabels(): void {
+    if (!labelMesh) return;
+    group.remove(labelMesh);
+    labelMesh.geometry.dispose();
+    const material = labelMesh.material as THREE.MeshBasicMaterial;
+    material.map?.dispose();
+    material.dispose();
     labelMesh = null;
   }
 
+  /// Instances are allocated at per-floor cell capacity rather than current
+  /// machine count so machines can appear and vanish without reallocating.
+  function createLevel(y: number, capacity: number): LevelView {
+    const machineMaterial = new THREE.MeshStandardMaterial({
+      color: MACHINE_COLOR,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const productMaterial = new THREE.MeshStandardMaterial({
+      color: PRODUCT_COLOR,
+      emissive: PRODUCT_COLOR,
+      emissiveIntensity: 0.6,
+      transparent: true,
+      opacity: 1,
+    });
+
+    const machines = new THREE.InstancedMesh(machineGeometry, machineMaterial, capacity);
+    const products = new THREE.InstancedMesh(productGeometry, productMaterial, capacity);
+    machines.count = 0;
+    products.count = 0;
+    // Bottom-to-top ordering so transparent lower floors composite correctly.
+    machines.renderOrder = 2 + y * 2;
+    products.renderOrder = 3 + y * 2;
+    machines.frustumCulled = false;
+    products.frustumCulled = false;
+
+    group.add(machines);
+    group.add(products);
+
+    return {
+      machines,
+      products,
+      machineMaterial,
+      productMaterial,
+      positions: new Float32Array(capacity * 3),
+      cells: new Int32Array(capacity).fill(-1),
+      slots: new Int32Array(capacity).fill(-1),
+      count: 0,
+    };
+  }
+
+  function applyVisibility(): void {
+    for (let y = 0; y < levels.length; y += 1) {
+      const lv = levels[y];
+      const hidden = subfocusEnabled && y > level;
+      const dimmed = subfocusEnabled && y < level;
+
+      lv.machines.visible = !hidden;
+      lv.products.visible = !hidden;
+      lv.machineMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 0.9;
+      lv.productMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 1;
+      lv.machineMaterial.depthWrite = !dimmed;
+      lv.productMaterial.depthWrite = !dimmed;
+    }
+  }
+
   function buildLabels(): void {
+    clearLabels();
     const texture = buildLabelTexture(hull, level);
     if (!texture) return;
 
-    const size = APC_GRID_CELL_SIZE;
     const plane = new THREE.PlaneGeometry(hull.w * size, hull.d * size);
     const material = new THREE.MeshBasicMaterial({
       map: texture,
@@ -139,100 +219,87 @@ export function createApcInteriorView(): ApcInteriorView {
     // canvas row 0 lines up with cell z = 0.
     labelMesh.rotation.x = -Math.PI / 2;
     labelMesh.position.y = -hull.h * size * 0.5 + (level + 0.5) * size;
-    labelMesh.renderOrder = 3;
-    labelMesh.visible = labelsVisible;
+    labelMesh.renderOrder = 1000;
+    labelMesh.visible = labelsVisible || subfocusEnabled;
     group.add(labelMesh);
   }
 
   function rebuild(): void {
-    clearChildren();
+    clearLevels();
     hull = readHull();
     level = Math.min(level, Math.max(0, hull.h - 1));
 
+    const capacity = Math.max(1, hull.w * hull.d);
+    for (let y = 0; y < hull.h; y += 1) levels.push(createLevel(y, capacity));
+
     const interior = getApcInterior();
     const count = interior.machine_count();
+    const cells = getApcMachineCells();
+    const envelopeW = interior.envelope_w();
+    const envelopeD = interior.envelope_d();
+    const levelStride = envelopeW * envelopeD;
 
-    if (count > 0) {
-      const size = APC_GRID_CELL_SIZE;
-      const cells = getApcMachineCells();
+    for (let slot = 0; slot < count; slot += 1) {
+      const cell = cells[slot];
+      const y = Math.floor(cell / levelStride);
+      const remainder = cell % levelStride;
+      const x = remainder % envelopeW;
+      const z = Math.floor(remainder / envelopeW);
 
-      machineMesh = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(
-          size * MACHINE_FILL_RATIO,
-          size * MACHINE_FILL_RATIO,
-          size * MACHINE_FILL_RATIO,
-        ),
-        new THREE.MeshStandardMaterial({
-          color: MACHINE_COLOR,
-          transparent: true,
-          opacity: 0.9,
-        }),
-        count,
-      );
-      machineMesh.renderOrder = 2;
+      const target = levels[displayLevel(y)];
+      if (!target || target.count >= capacity) continue;
 
-      productMesh = new THREE.InstancedMesh(
-        new THREE.SphereGeometry(size * PRODUCT_FILL_RATIO * 0.5, 10, 8),
-        new THREE.MeshStandardMaterial({
-          color: PRODUCT_COLOR,
-          emissive: PRODUCT_COLOR,
-          emissiveIntensity: 0.6,
-        }),
-        count,
-      );
-      productMesh.renderOrder = 4;
+      const local = target.count;
+      target.count += 1;
+      target.cells[local] = cell;
+      target.slots[local] = slot;
 
-      const envelopeW = interior.envelope_w();
-      const envelopeD = interior.envelope_d();
-      const levelStride = envelopeW * envelopeD;
+      cellCentre(x, y, z, hull, scratchPosition);
+      target.positions[local * 3] = scratchPosition.x;
+      target.positions[local * 3 + 1] = scratchPosition.y;
+      target.positions[local * 3 + 2] = scratchPosition.z;
 
-      for (let slot = 0; slot < count; slot += 1) {
-        const cell = cells[slot];
-        const y = Math.floor(cell / levelStride);
-        const remainder = cell % levelStride;
-        const x = remainder % envelopeW;
-        const z = Math.floor(remainder / envelopeW);
-
-        cellCentre(x, y, z, hull, scratchPosition);
-        scratchMatrix.compose(
-          scratchPosition,
-          scratchQuaternion.identity(),
-          scratchScale.set(1, 1, 1),
-        );
-        machineMesh.setMatrixAt(slot, scratchMatrix);
-        productMesh.setMatrixAt(slot, scratchMatrix);
-      }
-
-      machineMesh.instanceMatrix.needsUpdate = true;
-      productMesh.instanceMatrix.needsUpdate = true;
-
-      group.add(machineMesh);
-      group.add(productMesh);
+      scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(1, 1, 1));
+      target.machines.setMatrixAt(local, scratchMatrix);
+      scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(0, 0, 0));
+      target.products.setMatrixAt(local, scratchMatrix);
     }
 
+    for (const lv of levels) {
+      lv.machines.count = lv.count;
+      lv.products.count = lv.count;
+      lv.machines.instanceMatrix.needsUpdate = true;
+      lv.products.instanceMatrix.needsUpdate = true;
+    }
+
+    applyVisibility();
     buildLabels();
     sync();
   }
 
   /// Product markers snap between cells so the one-cell-per-step invariant
   /// stays visible; interpolating would hide exactly what this stage verifies.
+  /// State is read absolutely from the sim rather than accumulated, so a hidden
+  /// floor renders correctly on the first frame it is revealed despite being skipped.
   function sync(): void {
-    if (!productMesh) return;
     const holding = getApcMachineHolding();
-    const count = Math.min(productMesh.count, holding.length);
 
-    for (let slot = 0; slot < count; slot += 1) {
-      productMesh.getMatrixAt(slot, scratchMatrix);
-      scratchMatrix.decompose(scratchPosition, scratchQuaternion, scratchScale);
-      const visible = holding[slot] !== 0 ? 1 : 0;
-      scratchMatrix.compose(
-        scratchPosition,
-        scratchQuaternion,
-        scratchScale.set(visible, visible, visible),
-      );
-      productMesh.setMatrixAt(slot, scratchMatrix);
+    for (const lv of levels) {
+      if (!lv.products.visible) continue;
+
+      for (let local = 0; local < lv.count; local += 1) {
+        const slot = lv.slots[local];
+        const on = slot >= 0 && slot < holding.length && holding[slot] !== 0 ? 1 : 0;
+        scratchPosition.set(
+          lv.positions[local * 3],
+          lv.positions[local * 3 + 1],
+          lv.positions[local * 3 + 2],
+        );
+        scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(on, on, on));
+        lv.products.setMatrixAt(local, scratchMatrix);
+      }
+      lv.products.instanceMatrix.needsUpdate = true;
     }
-    productMesh.instanceMatrix.needsUpdate = true;
   }
 
   rebuild();
@@ -245,19 +312,31 @@ export function createApcInteriorView(): ApcInteriorView {
       const clamped = Math.min(Math.max(0, Math.round(next)), Math.max(0, hull.h - 1));
       if (clamped === level) return;
       level = clamped;
-      if (labelMesh) {
-        group.remove(labelMesh);
-        (labelMesh.material as THREE.MeshBasicMaterial).map?.dispose();
-        disposeObject(labelMesh);
-        labelMesh = null;
-      }
+      applyVisibility();
       buildLabels();
     },
     focusLevel: () => level,
+    setSubfocusEnabled(enabled: boolean) {
+      if (enabled === subfocusEnabled) return;
+      subfocusEnabled = enabled;
+      applyVisibility();
+      if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
+    },
+    /// Maps a raycast instanceId back to its sim cell; -1 when out of range.
+    cellAt(targetLevel: number, instanceId: number) {
+      const lv = levels[targetLevel];
+      if (!lv || instanceId < 0 || instanceId >= lv.count) return -1;
+      return lv.cells[instanceId];
+    },
     setLabelsVisible(visible: boolean) {
       labelsVisible = visible;
-      if (labelMesh) labelMesh.visible = visible;
+      if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
     },
-    dispose: clearChildren,
+    dispose() {
+      clearLevels();
+      clearLabels();
+      machineGeometry.dispose();
+      productGeometry.dispose();
+    },
   };
 }

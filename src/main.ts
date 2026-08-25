@@ -6,6 +6,7 @@ import { getApcInterior, getNeighborHeightmap, getNeighborSlopemap, getSim, getS
 import { initCameraControls, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
 import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
+import { attachFocusFloorControls } from './input/focusFloor';
 import {
   isFocusMode,
   restoreCameraSnapshot,
@@ -13,6 +14,8 @@ import {
   setFocusMode,
   getFocusAzimuth,
   resetFocusAzimuth,
+  getFocusLevel,
+  resetFocusLevel,
 } from './focusMode';
 import { createBlizzardMask } from './render/blizzardMask';
 import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
@@ -20,7 +23,7 @@ import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
-import { createApcMesh, resizeApcMesh, setApcGridVisible, syncApcMesh } from './world/apc';
+import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, syncApcMesh } from './world/apc';
 import { seedApcDemoLoop } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
@@ -81,6 +84,7 @@ let prevShardRow = sim.current_shard_row();
 let prevShardCol = sim.current_shard_col();
 let hasRunNeighborHeightmapSanityCheck = false;
 let cameraFollowOn = true;
+let apcGridOn = false;
 
 function attachTierOverlay(mesh: THREE.Mesh, slopemap: Float32Array): void {
   const overlay = createTierOverlayMesh(mesh, slopemap);
@@ -189,16 +193,26 @@ focusButton.addEventListener('click', () => {
   if (isFocusMode()) {
     setFocusMode(false);
     restoreCameraSnapshot(camera);
+    apcInteriorView.setSubfocusEnabled(false);
+    setApcGridFocus(apcMesh, 0, false);
+    setApcGridVisible(apcMesh, apcGridOn);
     focusButton.textContent = 'Focus APC Interior';
   } else {
     saveCameraSnapshot(camera);
     resetFocusAzimuth();
+    resetFocusLevel();
     setFocusMode(true);
+    apcInteriorView.setFocusLevel(0);
+    apcInteriorView.setSubfocusEnabled(true);
+    setApcGridVisible(apcMesh, true);
     focusButton.textContent = 'Exit Focus Mode';
   }
 });
 
 attachFocusOrbitControls(renderer.domElement);
+attachFocusFloorControls(renderer.domElement);
+
+const focusTarget = new THREE.Vector3();
 
 createDevPanel(
   sim,
@@ -238,7 +252,8 @@ createDevPanel(
     console.log('[debug] console output', enabled ? 'enabled' : 'disabled');
   },
   (visible) => {
-    setApcGridVisible(apcMesh, visible);
+    apcGridOn = visible;
+    setApcGridVisible(apcMesh, visible || isFocusMode());
   },
   (cells, reset) => {
     if (reset) {
@@ -376,16 +391,23 @@ function animate() {
   }
 
   syncApcMesh(apcMesh, sim, frameTime);
+  if (isFocusMode()) apcInteriorView.setFocusLevel(getFocusLevel());
+  setApcGridFocus(apcMesh, getFocusLevel(), isFocusMode());
   apcInteriorView.sync();
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
   if (isFocusMode()) {
+    const hullH = apcInterior.hull_h();
+    const focusedLevel = getFocusLevel();
+    // Hull is centred on the mesh origin, so the floor offset is local and must
+    // ride the APC's orientation rather than being added in world space.
+    apcMesh.updateMatrixWorld();
+    focusTarget.set(0, (-hullH * 0.5 + focusedLevel + 0.5) * APC_GRID_CELL_SIZE, 0);
+    apcMesh.localToWorld(focusTarget);
     updateFocusCamera(
       camera,
-      sim.apc_x(),
-      sim.apc_y(),
-      sim.apc_z(),
+      focusTarget,
       apcInterior.hull_w() * APC_GRID_CELL_SIZE,
-      apcInterior.hull_h() * APC_GRID_CELL_SIZE,
+      hullH * APC_GRID_CELL_SIZE,
       apcInterior.hull_d() * APC_GRID_CELL_SIZE,
       getFocusAzimuth(),
     );

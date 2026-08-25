@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isFocusMode } from '../focusMode';
 import { GROUND_SIZE } from '../sim/config';
 
 const MIN_VIEW_SIZE = 1.0;
@@ -31,19 +32,17 @@ export function setCameraFollowEnabled(enabled: boolean): void {
   cameraFollowEnabled = enabled;
 }
 
-const FOCUS_PADDING = 1.6;
+const FOCUS_PADDING = 2.1;
 const FOCUS_MIN_VIEW_SIZE = 0.5;
 // Fixed elevation of the halo ring, matching the (1,1,1) iso angle the default azimuth starts at.
 const FOCUS_ELEVATION = Math.asin(1 / Math.sqrt(3));
 const FOCUS_HORIZ = Math.cos(FOCUS_ELEVATION);
 
 // Frames the APC hull tightly, scaling to hull size so it stays valid as the hull grows.
-// `azimuth` is the halo-ring rotation angle (radians) around the APC; elevation is fixed.
+// `target` is the world-space point to centre on; `azimuth` rotates the halo ring around it.
 export function updateFocusCamera(
   camera: THREE.OrthographicCamera,
-  ax: number,
-  ay: number,
-  az: number,
+  target: THREE.Vector3,
   hullWidth: number,
   hullHeight: number,
   hullLength: number,
@@ -64,11 +63,11 @@ export function updateFocusCamera(
   const dirY = Math.sin(FOCUS_ELEVATION);
   const dirZ = FOCUS_HORIZ * Math.sin(azimuth);
   camera.position.set(
-    ax + dirX * distance,
-    ay + dirY * distance,
-    az + dirZ * distance,
+    target.x + dirX * distance,
+    target.y + dirY * distance,
+    target.z + dirZ * distance,
   );
-  camera.lookAt(ax, ay, az);
+  camera.lookAt(target);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
 }
@@ -135,6 +134,8 @@ export function initCameraControls(
     'wheel',
     (event: WheelEvent) => {
       event.preventDefault();
+
+      if (isFocusMode()) return;
 
       const aspect = window.innerWidth / window.innerHeight;
       const currentViewSize = camera.top - camera.bottom;
