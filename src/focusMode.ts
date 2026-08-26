@@ -3,21 +3,34 @@ import { getApcInterior } from './entityStore';
 
 export type CameraSnapshot = {
   position: THREE.Vector3;
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
+  quaternion: THREE.Quaternion;
+  up: THREE.Vector3;
+  viewHeight: number;
 };
 
-let focusModeActive = false;
+/// Which interior the player is inside. Buildings reuse the APC's lattice, so
+/// they enter the same mode with a different target rather than a parallel one.
+export type InteriorTarget =
+  | { kind: 'apc' }
+  | { kind: 'building'; buildingId: number };
+
+let focusTarget: InteriorTarget | null = null;
 let savedCamera: CameraSnapshot | null = null;
 
 export function isFocusMode(): boolean {
-  return focusModeActive;
+  return focusTarget !== null;
 }
 
-export function setFocusMode(active: boolean): void {
-  focusModeActive = active;
+export function getFocusTarget(): InteriorTarget | null {
+  return focusTarget;
+}
+
+export function enterFocusMode(target: InteriorTarget): void {
+  focusTarget = target;
+}
+
+export function exitFocusMode(): void {
+  focusTarget = null;
 }
 
 // Halo-ring orbit: azimuth-only rotation around the APC at a fixed elevation.
@@ -60,26 +73,30 @@ export function resetFocusLevel(): void {
   focusLevel = 0;
 }
 
+/// Orientation is captured explicitly rather than left to camera-follow to
+/// rebuild, which it only does while following is enabled. Zoom is stored as a
+/// view height so a resize during focus mode cannot restore a stale aspect.
 export function saveCameraSnapshot(camera: THREE.OrthographicCamera): void {
   savedCamera = {
     position: camera.position.clone(),
-    left: camera.left,
-    right: camera.right,
-    top: camera.top,
-    bottom: camera.bottom,
+    quaternion: camera.quaternion.clone(),
+    up: camera.up.clone(),
+    viewHeight: camera.top - camera.bottom,
   };
-}
-
-export function getCameraSnapshot(): CameraSnapshot | null {
-  return savedCamera;
 }
 
 export function restoreCameraSnapshot(camera: THREE.OrthographicCamera): void {
   if (!savedCamera) return;
+  const aspect = window.innerWidth / window.innerHeight;
+  const height = savedCamera.viewHeight;
+
   camera.position.copy(savedCamera.position);
-  camera.left = savedCamera.left;
-  camera.right = savedCamera.right;
-  camera.top = savedCamera.top;
-  camera.bottom = savedCamera.bottom;
+  camera.quaternion.copy(savedCamera.quaternion);
+  camera.up.copy(savedCamera.up);
+  camera.top    =  height * 0.5;
+  camera.bottom = -height * 0.5;
+  camera.right  =  height * aspect * 0.5;
+  camera.left   = -height * aspect * 0.5;
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
 }

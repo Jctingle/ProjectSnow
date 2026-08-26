@@ -32,17 +32,31 @@ export function setCameraFollowEnabled(enabled: boolean): void {
   cameraFollowEnabled = enabled;
 }
 
+export function isCameraFollowEnabled(): boolean {
+  return cameraFollowEnabled;
+}
+
+/// Drops accumulated panning so the next follow update recentres on the APC.
+export function resetCameraPan(): void {
+  panOffset.set(0, 0, 0);
+}
+
 const FOCUS_PADDING = 2.1;
 const FOCUS_MIN_VIEW_SIZE = 0.5;
 // Fixed elevation of the halo ring, matching the (1,1,1) iso angle the default azimuth starts at.
 const FOCUS_ELEVATION = Math.asin(1 / Math.sqrt(3));
 const FOCUS_HORIZ = Math.cos(FOCUS_ELEVATION);
 
+const focusDirection = new THREE.Vector3();
+const focusUp = new THREE.Vector3();
+
 // Frames the APC hull tightly, scaling to hull size so it stays valid as the hull grows.
-// `target` is the world-space point to centre on; `azimuth` rotates the halo ring around it.
+// The ring and the camera's up vector are built in the APC's own frame, so terrain
+// tilt moves the vehicle without changing how it is presented on screen.
 export function updateFocusCamera(
   camera: THREE.OrthographicCamera,
   target: THREE.Vector3,
+  orientation: THREE.Quaternion,
   hullWidth: number,
   hullHeight: number,
   hullLength: number,
@@ -59,14 +73,18 @@ export function updateFocusCamera(
   camera.left   = -viewSize * aspect * 0.5;
 
   const distance = radius * 4 + 1;
-  const dirX = FOCUS_HORIZ * Math.cos(azimuth);
-  const dirY = Math.sin(FOCUS_ELEVATION);
-  const dirZ = FOCUS_HORIZ * Math.sin(azimuth);
-  camera.position.set(
-    target.x + dirX * distance,
-    target.y + dirY * distance,
-    target.z + dirZ * distance,
-  );
+  focusDirection
+    .set(
+      FOCUS_HORIZ * Math.cos(azimuth),
+      Math.sin(FOCUS_ELEVATION),
+      FOCUS_HORIZ * Math.sin(azimuth),
+    )
+    .applyQuaternion(orientation);
+  focusUp.set(0, 1, 0).applyQuaternion(orientation);
+
+  // Assigned before lookAt, which derives the camera basis from it.
+  camera.up.copy(focusUp);
+  camera.position.copy(target).addScaledVector(focusDirection, distance);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
@@ -84,7 +102,7 @@ export function initCameraControls(
   const forward = new THREE.Vector3();
 
   canvas.addEventListener('mousedown', (event: MouseEvent) => {
-    if (event.button !== 1) return;
+    if (event.button !== 1 || isFocusMode()) return;
     event.preventDefault();
     isPanning = true;
     lastX = event.clientX;
@@ -153,7 +171,7 @@ export function initCameraControls(
 
   window.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.code === 'Home' || event.code === 'KeyF') {
-      panOffset.set(0, 0, 0);
+      resetCameraPan();
     }
   });
 }

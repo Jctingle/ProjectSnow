@@ -18,7 +18,6 @@ export type ApcInteriorView = {
   rebuild(): void;
   sync(): void;
   setFocusLevel(level: number): void;
-  focusLevel(): number;
   setSubfocusEnabled(enabled: boolean): void;
   pickCell(ndc: THREE.Vector2, camera: THREE.Camera): number;
   setHoveredCell(cell: number): void;
@@ -413,7 +412,6 @@ export function createApcInteriorView(): ApcInteriorView {
       applyVisibility();
       buildLabels();
     },
-    focusLevel: () => level,
     setSubfocusEnabled(enabled: boolean) {
       if (enabled === subfocusEnabled) return;
       subfocusEnabled = enabled;

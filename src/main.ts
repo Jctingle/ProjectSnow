@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css';
 import { getApcInterior, getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
-import { initCameraControls, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
+import { initCameraControls, isCameraFollowEnabled, resetCameraPan, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
 import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
 import { attachFocusFloorControls } from './input/focusFloor';
@@ -12,7 +12,8 @@ import {
   isFocusMode,
   restoreCameraSnapshot,
   saveCameraSnapshot,
-  setFocusMode,
+  enterFocusMode,
+  exitFocusMode,
   getFocusAzimuth,
   resetFocusAzimuth,
   getFocusLevel,
@@ -24,7 +25,7 @@ import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel, updateDeployedCount } from './ui/devPanel';
-import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setApcHullVisible, syncApcMesh } from './world/apc';
+import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setApcHullCutaway, setApcHullVisible, syncApcMesh } from './world/apc';
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
@@ -84,7 +85,6 @@ const keyOf = (dr: number, dc: number) => `${dr},${dc}`;
 let prevShardRow = sim.current_shard_row();
 let prevShardCol = sim.current_shard_col();
 let hasRunNeighborHeightmapSanityCheck = false;
-let cameraFollowOn = true;
 let apcGridOn = false;
 
 function attachTierOverlay(mesh: THREE.Mesh, slopemap: Float32Array): void {
@@ -192,20 +192,22 @@ document.body.appendChild(focusButton);
 
 focusButton.addEventListener('click', () => {
   if (isFocusMode()) {
-    setFocusMode(false);
+    exitFocusMode();
     restoreCameraSnapshot(camera);
     apcInteriorView.setSubfocusEnabled(false);
     setApcGridFocus(apcMesh, 0, false);
     setApcGridVisible(apcMesh, apcGridOn);
+    setApcHullCutaway(apcMesh, false);
     focusButton.textContent = 'Focus APC Interior';
   } else {
     saveCameraSnapshot(camera);
     resetFocusAzimuth();
     resetFocusLevel();
-    setFocusMode(true);
+    enterFocusMode({ kind: 'apc' });
     apcInteriorView.setFocusLevel(0);
     apcInteriorView.setSubfocusEnabled(true);
     setApcGridVisible(apcMesh, true);
+    setApcHullCutaway(apcMesh, true);
     focusButton.textContent = 'Exit Focus Mode';
   }
 });
@@ -215,6 +217,7 @@ attachFocusFloorControls(renderer.domElement);
 attachInteriorPicking(renderer.domElement, camera, apcInteriorView);
 
 const focusTarget = new THREE.Vector3();
+const focusOrientation = new THREE.Quaternion();
 
 createDevPanel(
   sim,
@@ -238,8 +241,12 @@ createDevPanel(
     }
   },
   (followActive) => {
-    cameraFollowOn = followActive;
     setCameraFollowEnabled(followActive);
+  },
+  () => {
+    resetCameraPan();
+    // Applied immediately so the button also recentres while follow is off.
+    updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
   },
   (settings) => {
     blizzardMask.setSettings(settings);
@@ -318,7 +325,7 @@ function animate() {
 
   if (didCrossShard) {
     inputRouter.shiftDestinationMarker(shiftX, shiftZ);
-    if (!cameraFollowOn) {
+    if (!isCameraFollowEnabled()) {
       camera.position.x += shiftX;
       camera.position.z += shiftZ;
       camera.updateMatrixWorld();
@@ -412,15 +419,17 @@ function animate() {
     apcMesh.updateMatrixWorld();
     focusTarget.set(0, (-hullH * 0.5 + focusedLevel + 0.5) * APC_GRID_CELL_SIZE, 0);
     apcMesh.localToWorld(focusTarget);
+    apcMesh.getWorldQuaternion(focusOrientation);
     updateFocusCamera(
       camera,
       focusTarget,
+      focusOrientation,
       apcInterior.hull_w() * APC_GRID_CELL_SIZE,
       hullH * APC_GRID_CELL_SIZE,
       apcInterior.hull_d() * APC_GRID_CELL_SIZE,
       getFocusAzimuth(),
     );
-  } else if (cameraFollowOn) {
+  } else if (isCameraFollowEnabled()) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
   }
   inputRouter.update();

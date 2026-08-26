@@ -387,8 +387,14 @@ function createApcGrid(dimensions: ApcDimensions): THREE.Group {
   return group;
 }
 
+const APC_HULL_OPACITY = 0.5;
+
 function createApcHullMaterial(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: 0xff8844, transparent: true, opacity: 0.5 });
+  return new THREE.MeshStandardMaterial({
+    color: 0xff8844,
+    transparent: true,
+    opacity: APC_HULL_OPACITY,
+  });
 }
 
 function addApcParts(mesh: THREE.Mesh, dimensions: ApcDimensions): void {
@@ -452,6 +458,24 @@ export function setApcGridVisible(mesh: THREE.Mesh, visible: boolean): void {
 export function setApcHullVisible(mesh: THREE.Mesh, visible: boolean): void {
   const material = mesh.material as THREE.Material;
   material.visible = visible;
+}
+
+/**
+ * One-way hull: `BackSide` culls the exterior faces turned toward the camera and
+ * draws the interior of the far ones instead, so the shell opens up as the halo
+ * ring orbits without any per-frame face selection. Solid in this mode so the
+ * remaining walls read as a backdrop rather than a haze.
+ *
+ * Both directions are set from constants rather than snapshotted, so a missed
+ * exit path cannot strand the hull in cutaway state. `needsUpdate` is required
+ * because `side` and `transparent` are shader-program parameters.
+ */
+export function setApcHullCutaway(mesh: THREE.Mesh, enabled: boolean): void {
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  material.side = enabled ? THREE.BackSide : THREE.FrontSide;
+  material.transparent = !enabled;
+  material.opacity = enabled ? 1 : APC_HULL_OPACITY;
+  material.needsUpdate = true;
 }
 
 /// Focused floor turns green, floors below stay red and dimmed, floors above hide.

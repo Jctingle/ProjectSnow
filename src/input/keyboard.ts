@@ -1,5 +1,4 @@
 import { clearSelection } from './selection';
-import { gameMode, setGameMode } from './gameMode';
 import { toggleRecallUnits } from '../ui/devPanel';
 
 export function attachKeyboardShortcuts(): void {
@@ -14,9 +13,5 @@ export function attachKeyboardShortcuts(): void {
     }
 
     clearSelection();
-
-    if (gameMode.type === 'subLevel') {
-      setGameMode({ type: 'freeRoam' });
-    }
   });
 }

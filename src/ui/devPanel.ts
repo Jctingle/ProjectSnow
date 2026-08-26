@@ -105,6 +105,7 @@ export function createDevPanel(
   onSlopeDebugToggle?: (checked: boolean) => void,
   onRecallToggle?: (recallActive: boolean) => void,
   onCameraFollowToggle?: (followActive: boolean) => void,
+  onCenterOnApc?: () => void,
   onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void,
   onTiltShiftToggle?: (enabled: boolean) => void,
   onTiltShiftSettingsChange?: (settings: Partial<TiltShiftSettings>) => void,
@@ -175,6 +176,16 @@ export function createDevPanel(
   cameraFollowLabel.textContent = 'Camera follows APC';
   slopeRow.appendChild(cameraFollowCheckbox);
   slopeRow.appendChild(cameraFollowLabel);
+
+  const centerOnApcButton = document.createElement('button');
+  centerOnApcButton.type = 'button';
+  centerOnApcButton.textContent = 'Center on APC';
+  centerOnApcButton.style.cssText =
+    'border:0; border-radius:4px; padding:4px 8px; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font:inherit;';
+  centerOnApcButton.addEventListener('click', () => {
+    onCenterOnApc?.();
+  });
+  slopeRow.appendChild(centerOnApcButton);
 
   panel.appendChild(slopeRow);
 

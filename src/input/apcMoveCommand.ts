@@ -7,7 +7,6 @@ import {
   HEIGHTMAP_GRID_SIZE,
   SLOPE_CLIFF_THRESHOLD_DEG,
 } from '../sim/config';
-import { gameMode } from './gameMode';
 import { getGroundClickPoint } from './raycast';
 import { validateSegment } from './destinationValidity';
 import type { DestinationMarkerController } from './destinationMarker';
@@ -119,18 +118,6 @@ export function attachApcMoveCommand(
       waypointQueue = [];
       sim.set_apc_target(apcX, apcZ);
       destinationMarker.rebuild([], sim.apc_y());
-    }
-
-    if (gameMode.type !== 'freeRoam') {
-      logRightClick('reject:game-mode', () => ({
-        reason: 'gameMode.type !== freeRoam',
-        mode: gameMode.type,
-        clickScreen: { x: event.clientX, y: event.clientY },
-        worldPoint: null,
-        resolvedShard: null,
-        distanceFromApc: null,
-      }));
-      return;
     }
 
     const worldPoint = getGroundClickPoint(event, camera, renderer);
