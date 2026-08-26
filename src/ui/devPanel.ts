@@ -465,7 +465,7 @@ export function createDevPanel(
     'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
   const apcTracerCheckbox = document.createElement('input');
   apcTracerCheckbox.type = 'checkbox';
-  apcTracerCheckbox.checked = true;
+  apcTracerCheckbox.checked = false;
   const apcTracerLabel = document.createElement('label');
   apcTracerLabel.textContent = 'Cell tracer demo';
   apcTracerRow.appendChild(apcTracerCheckbox);

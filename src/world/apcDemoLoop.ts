@@ -6,7 +6,7 @@ import { getApcInterior } from '../entityStore';
 
 type Cell = { x: number; z: number };
 
-let tracerEnabled = true;
+let tracerEnabled = false;
 
 export function setApcDemoLoopEnabled(enabled: boolean): void {
   tracerEnabled = enabled;
