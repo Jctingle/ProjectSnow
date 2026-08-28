@@ -299,11 +299,32 @@ fn a_closed_loop_returns_the_product_to_its_start() {
 }
 
 #[test]
-#[should_panic(expected = "cell already holds a machine")]
-fn two_machines_cannot_share_a_cell() {
+fn multiple_machines_can_share_a_parent_cell_with_distinct_ids() {
     let lattice = hull_lattice();
     let cells = chain_cells(&lattice);
     let mut grid = MachineGrid::new(lattice.cell_count(), 1);
-    grid.add_machine(cells[0], MACHINE_PLAIN, NO_OUTPUT);
-    grid.add_machine(cells[0], MACHINE_PLAIN, NO_OUTPUT);
+    let first = grid.add_machine_with_footprint(cells[0], 0b0000_0011, MACHINE_PLAIN, NO_OUTPUT);
+    let second = grid.add_machine_with_footprint(cells[0], 0b0000_1100, MACHINE_PLAIN, NO_OUTPUT);
+
+    assert_ne!(first, second);
+    assert_eq!(grid.machine_count(), 2);
+    assert_eq!(grid.cell_of(0), cells[0]);
+    assert_eq!(grid.cell_of(1), cells[0]);
+    assert_eq!(grid.footprint_of(0), 0b0000_0011);
+    assert_eq!(grid.footprint_of(1), 0b0000_1100);
+}
+
+#[test]
+fn ids_remain_stable_across_retain() {
+    let lattice = hull_lattice();
+    let cells = chain_cells(&lattice);
+    let mut grid = MachineGrid::new(lattice.cell_count(), 1);
+    let keep = grid.add_machine_with_footprint(cells[0], 0b0000_0011, MACHINE_PLAIN, NO_OUTPUT);
+    let drop = grid.add_machine_with_footprint(cells[1], 0b0000_1100, MACHINE_PLAIN, NO_OUTPUT);
+
+    grid.retain(|cell| cell != cells[1]);
+
+    assert_eq!(grid.machine_count(), 1);
+    assert_eq!(grid.id_of(0), keep);
+    assert_eq!(grid.next_machine_id(), drop + 1);
 }

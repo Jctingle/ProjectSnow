@@ -9,7 +9,10 @@ import { attachFocusOrbitControls } from './input/focusOrbit';
 import { attachFocusFloorControls } from './input/focusFloor';
 import { attachInteriorPicking } from './input/interiorPick';
 import {
+  getFocusModeKind,
   isFocusMode,
+  selectedCube,
+  type FocusModeKind,
   restoreCameraSnapshot,
   saveCameraSnapshot,
   enterFocusMode,
@@ -29,6 +32,7 @@ import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setAp
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
+import { setFocusModeChangedHandler } from './input/keyboard';
 import {
   createTierOverlayMesh,
   disposeTierOverlayMesh,
@@ -190,25 +194,47 @@ focusButton.style.cssText =
   'position:fixed; top:12px; right:180px; z-index:10; padding:8px 12px; font-family:sans-serif; font-size:13px; cursor:pointer;';
 document.body.appendChild(focusButton);
 
-focusButton.addEventListener('click', () => {
-  if (isFocusMode()) {
-    exitFocusMode();
+function applyFocusUiState(mode: FocusModeKind): void {
+  if (mode === 'normal') {
     restoreCameraSnapshot(camera);
+    apcInteriorView.setCubeFocus(null);
+    apcInteriorView.setSelectedCell(-1);
+    apcInteriorView.setSelectedSubcell(-1);
     apcInteriorView.setSubfocusEnabled(false);
     setApcGridFocus(apcMesh, 0, false);
     setApcGridVisible(apcMesh, apcGridOn);
     setApcHullCutaway(apcMesh, false);
     focusButton.textContent = 'Focus APC Interior';
+    return;
+  }
+
+  if (mode === 'focusInterior') {
+    apcInteriorView.setCubeFocus(null);
+    apcInteriorView.setSelectedCell(-1);
+    apcInteriorView.setSelectedSubcell(-1);
+  }
+
+  apcInteriorView.setSubfocusEnabled(true);
+  setApcGridVisible(apcMesh, true);
+  setApcHullCutaway(apcMesh, true);
+  focusButton.textContent = 'Exit Focus Mode';
+}
+
+setFocusModeChangedHandler((mode) => {
+  applyFocusUiState(mode);
+});
+
+focusButton.addEventListener('click', () => {
+  if (isFocusMode()) {
+    exitFocusMode();
+    applyFocusUiState('normal');
   } else {
     saveCameraSnapshot(camera);
     resetFocusAzimuth();
     resetFocusLevel();
     enterFocusMode({ kind: 'apc' });
     apcInteriorView.setFocusLevel(0);
-    apcInteriorView.setSubfocusEnabled(true);
-    setApcGridVisible(apcMesh, true);
-    setApcHullCutaway(apcMesh, true);
-    focusButton.textContent = 'Exit Focus Mode';
+    applyFocusUiState(getFocusModeKind());
   }
 });
 
@@ -408,6 +434,7 @@ function animate() {
 
   syncApcMesh(apcMesh, sim, frameTime);
   if (isFocusMode()) apcInteriorView.setFocusLevel(getFocusLevel());
+  apcInteriorView.setCubeFocus(selectedCube());
   setApcGridFocus(apcMesh, getFocusLevel(), isFocusMode());
   apcInteriorView.sync();
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());

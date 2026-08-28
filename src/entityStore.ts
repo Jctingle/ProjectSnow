@@ -186,6 +186,11 @@ let faceYCache: U8Cache = null;
 let faceZCache: U8Cache = null;
 let machineCellsCache: U32Cache = null;
 let machineHoldingCache: U8Cache = null;
+let machineIdsCache: U32Cache = null;
+let machineParentCellsCache: U32Cache = null;
+let machineFootprintsCache: U8Cache = null;
+let subgridOccupantKindsCache: U8Cache = null;
+let subgridOccupantIdsCache: U32Cache = null;
 
 /** Cell kinds across the whole envelope. Changes only on hull expansion. */
 export function getApcCellKinds(): Uint8Array {
@@ -220,6 +225,34 @@ export function getApcMachineCells(): Uint32Array {
   return machineCellsCache!.view;
 }
 
+export function getApcMachineIds(): Uint32Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U32;
+  machineIdsCache = cacheU32(machineIdsCache, interior.machine_ids_ptr(), count);
+  return machineIdsCache!.view;
+}
+
+export function getApcMachineParentCells(): Uint32Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U32;
+  machineParentCellsCache = cacheU32(
+    machineParentCellsCache,
+    interior.machine_parent_cells_ptr(),
+    count,
+  );
+  return machineParentCellsCache!.view;
+}
+
+export function getApcMachineFootprints(): Uint8Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U8;
+  machineFootprintsCache = cacheU8(machineFootprintsCache, interior.machine_footprints_ptr(), count);
+  return machineFootprintsCache!.view;
+}
+
 
 /** The only interior array that changes on a normal frame. */
 export function getApcMachineHolding(): Uint8Array {
@@ -228,6 +261,30 @@ export function getApcMachineHolding(): Uint8Array {
   if (count === 0) return EMPTY_U8;
   machineHoldingCache = cacheU8(machineHoldingCache, interior.machine_holding_ptr(), count);
   return machineHoldingCache!.view;
+}
+
+export function getApcSubgridOccupantKinds(): Uint8Array {
+  const interior = getApcInterior();
+  const length = interior.subgrid_occupant_kinds_len();
+  if (length === 0) return EMPTY_U8;
+  subgridOccupantKindsCache = cacheU8(
+    subgridOccupantKindsCache,
+    interior.subgrid_occupant_kinds_ptr(),
+    length,
+  );
+  return subgridOccupantKindsCache!.view;
+}
+
+export function getApcSubgridOccupantIds(): Uint32Array {
+  const interior = getApcInterior();
+  const length = interior.subgrid_occupant_ids_len();
+  if (length === 0) return EMPTY_U32;
+  subgridOccupantIdsCache = cacheU32(
+    subgridOccupantIdsCache,
+    interior.subgrid_occupant_ids_ptr(),
+    length,
+  );
+  return subgridOccupantIdsCache!.view;
 }
 
 export function spawnUnit(x: number, z: number): number {

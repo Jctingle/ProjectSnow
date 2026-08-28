@@ -1,4 +1,4 @@
-import { isFocusMode, scrollFocusLevel } from '../focusMode';
+import { isCubeFocusMode, isFocusMode, scrollFocusLevel } from '../focusMode';
 
 // Trackpads emit many small fractional deltas per gesture while a mouse notch
 // arrives as one large delta, so steps are accumulated to a threshold and
@@ -16,6 +16,7 @@ export function attachFocusFloorControls(canvas: HTMLCanvasElement): void {
     (event: WheelEvent) => {
       if (!isFocusMode()) return;
       event.preventDefault();
+      if (isCubeFocusMode()) return;
 
       const pixels = event.deltaMode === 1 ? event.deltaY * LINE_HEIGHT_PX : event.deltaY;
       if (pixels === 0) return;

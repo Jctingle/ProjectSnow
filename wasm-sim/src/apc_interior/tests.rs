@@ -1,5 +1,6 @@
 use super::*;
 use crate::lattice::CELL_OUTSIDE;
+use crate::subgrid::OCCUPANT_MACHINE;
 
 const ENVELOPE: (usize, usize, usize) = (15, 10, 20);
 const DEFAULT_HULL: (usize, usize, usize) = (2, 1, 3);
@@ -131,6 +132,23 @@ fn reset_keeps_machines_inside_the_new_hull_and_drops_the_rest() {
 }
 
 #[test]
+fn reset_rebuilds_subgrid_so_dropped_cells_are_unoccupied() {
+    let mut interior = interior();
+    interior.set_hull_extent(9, 6, 12);
+
+    let kept = interior.cell_index(0, 0, 1);
+    let dropped = interior.cell_index(5, 3, 7);
+    assert!(interior.add_machine_without_output(kept, MachineKind::Plain));
+    assert!(interior.add_machine_without_output(dropped, MachineKind::Plain));
+
+    interior.reset_hull_extent(DEFAULT_HULL.0, DEFAULT_HULL.1, DEFAULT_HULL.2);
+
+    let kept_occupant = interior.subgrid.occupant(kept, 0);
+    assert!(matches!(kept_occupant, Some((OCCUPANT_MACHINE, _))));
+    assert_eq!(interior.subgrid.occupant(dropped, 0), None);
+}
+
+#[test]
 fn a_reset_hull_can_grow_again_afterwards() {
     let mut interior = interior();
     interior.set_hull_extent(9, 6, 12);
@@ -142,7 +160,24 @@ fn a_reset_hull_can_grow_again_afterwards() {
 }
 
 #[test]
-fn cell_index_returns_a_sentinel_outside_the_envelope() {    let interior = interior();
+fn clearing_machines_also_clears_subgrid_occupancy() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.add_machine_without_output(cell, MachineKind::Plain));
+    assert!(matches!(
+        interior.subgrid.occupant(cell, 0),
+        Some((OCCUPANT_MACHINE, _))
+    ));
+
+    interior.clear_machines();
+
+    assert_eq!(interior.machine_count(), 0);
+    assert_eq!(interior.subgrid.occupant(cell, 0), None);
+}
+
+#[test]
+fn cell_index_returns_a_sentinel_outside_the_envelope() {
+    let interior = interior();
     assert_eq!(interior.cell_index(15, 0, 0), usize::MAX);
     assert_eq!(interior.cell_index(0, 10, 0), usize::MAX);
     assert_eq!(interior.cell_index(0, 0, 20), usize::MAX);

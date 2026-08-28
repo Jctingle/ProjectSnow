@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { isFocusMode } from '../focusMode';
+import { enterCubeFocus, isCubeFocusMode, isFocusMode } from '../focusMode';
 import type { ApcInteriorView } from '../world/apcInterior';
 
 // Left-drag already orbits the halo ring, so a gesture that moves beyond this
@@ -43,16 +43,30 @@ export function attachInteriorPicking(
       dragged = true;
     }
     if (!toNdc(event)) return;
+    if (isCubeFocusMode()) {
+      view.setHoveredSubcell(view.pickSubcell(ndc, camera));
+      return;
+    }
     view.setHoveredCell(view.pickCell(ndc, camera));
   });
 
   canvas.addEventListener('mouseleave', () => {
-    view.setHoveredCell(-1);
+    if (isCubeFocusMode()) view.setHoveredSubcell(-1);
+    else view.setHoveredCell(-1);
   });
 
   canvas.addEventListener('click', (event: MouseEvent) => {
     if (!isFocusMode() || dragged) return;
     if (!toNdc(event)) return;
-    view.setSelectedCell(view.pickCell(ndc, camera));
+
+    if (isCubeFocusMode()) {
+      view.setSelectedSubcell(view.pickSubcell(ndc, camera));
+      return;
+    }
+
+    const cell = view.pickCell(ndc, camera);
+    if (cell < 0) return;
+    view.setSelectedCell(cell);
+    enterCubeFocus(cell);
   });
 }

@@ -12,6 +12,10 @@ const BELOW_LEVEL_OPACITY = 0.22;
 const HOVER_COLOR = 0x40e0d0;
 const SELECT_COLOR = 0x2266ff;
 const HIGHLIGHT_FILL_RATIO = 0.92;
+const SUBCELL_SIZE_RATIO = 0.48;
+const SUBCELL_FILL_OPACITY = 0.16;
+const SUBCELL_HOVER_COLOR = 0x33fff1;
+const SUBCELL_SELECT_COLOR = 0xff7e29;
 
 export type ApcInteriorView = {
   group: THREE.Group;
@@ -19,10 +23,15 @@ export type ApcInteriorView = {
   sync(): void;
   setFocusLevel(level: number): void;
   setSubfocusEnabled(enabled: boolean): void;
+  setCubeFocus(cell: number | null): void;
   pickCell(ndc: THREE.Vector2, camera: THREE.Camera): number;
+  pickSubcell(ndc: THREE.Vector2, camera: THREE.Camera): number;
   setHoveredCell(cell: number): void;
   setSelectedCell(cell: number): void;
+  setHoveredSubcell(local: number): void;
+  setSelectedSubcell(local: number): void;
   selectedCell(): number;
+  selectedSubcell(): number;
   setLabelsVisible(visible: boolean): void;
   dispose(): void;
 };
@@ -35,6 +44,7 @@ type LevelView = {
   machineMaterial: THREE.MeshStandardMaterial;
   productMaterial: THREE.MeshStandardMaterial;
   positions: Float32Array;
+  cells: Uint32Array;
   slots: Int32Array;
   count: number;
 };
@@ -129,6 +139,8 @@ export function createApcInteriorView(): ApcInteriorView {
   const scratchPosition = new THREE.Vector3();
   const identityQuaternion = new THREE.Quaternion();
   const scratchScale = new THREE.Vector3();
+  const scratchBox = new THREE.Box3();
+  const scratchHit = new THREE.Vector3();
 
   const pickRaycaster = new THREE.Raycaster();
   const localRay = new THREE.Ray();
@@ -136,6 +148,9 @@ export function createApcInteriorView(): ApcInteriorView {
 
   let hoveredCell = -1;
   let selectedCell = -1;
+  let cubeFocusCell: number | null = null;
+  let hoveredSubcell = -1;
+  let selectedSubcell = -1;
 
   const highlightGeometry = new THREE.BoxGeometry(
     size * HIGHLIGHT_FILL_RATIO,
@@ -163,6 +178,58 @@ export function createApcInteriorView(): ApcInteriorView {
   const hoverMesh = makeHighlight(HOVER_COLOR, 0.45);
   const selectMesh = makeHighlight(SELECT_COLOR, 0.6);
 
+  const subcellGeometry = new THREE.BoxGeometry(
+    size * SUBCELL_SIZE_RATIO,
+    size * SUBCELL_SIZE_RATIO,
+    size * SUBCELL_SIZE_RATIO,
+  );
+  const subcellLayer = new THREE.Group();
+  subcellLayer.visible = false;
+  subcellLayer.renderOrder = 901;
+  group.add(subcellLayer);
+
+  const subcellPreviewMeshes: THREE.Mesh[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    const mesh = new THREE.Mesh(
+      subcellGeometry,
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: SUBCELL_FILL_OPACITY,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    subcellLayer.add(mesh);
+    subcellPreviewMeshes.push(mesh);
+  }
+
+  const subcellHoverMesh = new THREE.Mesh(
+    subcellGeometry,
+    new THREE.MeshBasicMaterial({
+      color: SUBCELL_HOVER_COLOR,
+      transparent: true,
+      opacity: 0.5,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  subcellHoverMesh.visible = false;
+  subcellLayer.add(subcellHoverMesh);
+
+  const subcellSelectMesh = new THREE.Mesh(
+    subcellGeometry,
+    new THREE.MeshBasicMaterial({
+      color: SUBCELL_SELECT_COLOR,
+      transparent: true,
+      opacity: 0.6,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  subcellSelectMesh.visible = false;
+  subcellLayer.add(subcellSelectMesh);
+
   function cellToCoords(cell: number): { x: number; y: number; z: number } | null {
     if (cell < 0) return null;
     const interior = getApcInterior();
@@ -181,6 +248,84 @@ export function createApcInteriorView(): ApcInteriorView {
     cellCentre(coords.x, coords.y, coords.z, hull, scratchPosition);
     mesh.position.copy(scratchPosition);
     mesh.visible = true;
+  }
+
+  function subcellOffset(local: number, out: THREE.Vector3): THREE.Vector3 {
+    const x = local & 1;
+    const z = (local >> 1) & 1;
+    const y = (local >> 2) & 1;
+    const half = size * 0.25;
+    return out.set(
+      x === 0 ? -half : half,
+      y === 0 ? -half : half,
+      z === 0 ? -half : half,
+    );
+  }
+
+  function clearSubcellPicks(): void {
+    hoveredSubcell = -1;
+    selectedSubcell = -1;
+    subcellHoverMesh.visible = false;
+    subcellSelectMesh.visible = false;
+  }
+
+  function updateSubcellLayer(): void {
+    if (cubeFocusCell === null) {
+      subcellLayer.visible = false;
+      clearSubcellPicks();
+      return;
+    }
+
+    const coords = cellToCoords(cubeFocusCell);
+    if (!coords || coords.y !== level) {
+      subcellLayer.visible = false;
+      clearSubcellPicks();
+      return;
+    }
+
+    cellCentre(coords.x, coords.y, coords.z, hull, scratchPosition);
+    subcellLayer.position.copy(scratchPosition);
+    subcellLayer.visible = true;
+
+    for (let local = 0; local < 8; local += 1) {
+      subcellOffset(local, scratchPosition);
+      subcellPreviewMeshes[local].position.copy(scratchPosition);
+    }
+
+    if (selectedSubcell >= 0 && selectedSubcell < 8) {
+      subcellOffset(selectedSubcell, scratchPosition);
+      subcellSelectMesh.position.copy(scratchPosition);
+      subcellSelectMesh.visible = true;
+    } else {
+      subcellSelectMesh.visible = false;
+    }
+
+    if (hoveredSubcell >= 0 && hoveredSubcell < 8 && hoveredSubcell !== selectedSubcell) {
+      subcellOffset(hoveredSubcell, scratchPosition);
+      subcellHoverMesh.position.copy(scratchPosition);
+      subcellHoverMesh.visible = true;
+    } else {
+      subcellHoverMesh.visible = false;
+    }
+  }
+
+  function applyCubeIsolation(): void {
+    for (let y = 0; y < levels.length; y += 1) {
+      const lv = levels[y];
+      for (let local = 0; local < lv.count; local += 1) {
+        const show = cubeFocusCell === null || y !== level || lv.cells[local] === cubeFocusCell;
+        scratchPosition.set(
+          lv.positions[local * 3],
+          lv.positions[local * 3 + 1],
+          lv.positions[local * 3 + 2],
+        );
+        const s = show ? 1 : 0;
+        scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(s, s, s));
+        lv.machines.setMatrixAt(local, scratchMatrix);
+      }
+      lv.machines.instanceMatrix.needsUpdate = true;
+    }
+    updateSubcellLayer();
   }
 
   function updateHighlights(): void {
@@ -217,6 +362,8 @@ export function createApcInteriorView(): ApcInteriorView {
     hoveredCell = -1;
     selectedCell = -1;
     updateHighlights();
+    clearSubcellPicks();
+    updateSubcellLayer();
   }
 
   function clearLevels(): void {
@@ -277,6 +424,7 @@ export function createApcInteriorView(): ApcInteriorView {
       machineMaterial,
       productMaterial,
       positions: new Float32Array(capacity * 3),
+      cells: new Uint32Array(capacity),
       slots: new Int32Array(capacity).fill(-1),
       count: 0,
     };
@@ -347,6 +495,7 @@ export function createApcInteriorView(): ApcInteriorView {
       const local = target.count;
       target.count += 1;
       target.slots[local] = slot;
+      target.cells[local] = cell;
 
       cellCentre(x, y, z, hull, scratchPosition);
       target.positions[local * 3] = scratchPosition.x;
@@ -367,6 +516,7 @@ export function createApcInteriorView(): ApcInteriorView {
     }
 
     applyVisibility();
+    applyCubeIsolation();
     buildLabels();
     updateHighlights();
     sync();
@@ -379,12 +529,15 @@ export function createApcInteriorView(): ApcInteriorView {
   function sync(): void {
     const holding = getApcMachineHolding();
 
-    for (const lv of levels) {
+    for (let y = 0; y < levels.length; y += 1) {
+      const lv = levels[y];
       if (!lv.products.visible) continue;
 
       for (let local = 0; local < lv.count; local += 1) {
         const slot = lv.slots[local];
-        const on = slot >= 0 && slot < holding.length && holding[slot] !== 0 ? 1 : 0;
+        const visibleByCube = cubeFocusCell === null || y !== level || lv.cells[local] === cubeFocusCell;
+        const on =
+          visibleByCube && slot >= 0 && slot < holding.length && holding[slot] !== 0 ? 1 : 0;
         scratchPosition.set(
           lv.positions[local * 3],
           lv.positions[local * 3 + 1],
@@ -410,6 +563,7 @@ export function createApcInteriorView(): ApcInteriorView {
       // Scrolling away from a floor drops its selection rather than carrying it.
       clearPicks();
       applyVisibility();
+      applyCubeIsolation();
       buildLabels();
     },
     setSubfocusEnabled(enabled: boolean) {
@@ -417,9 +571,49 @@ export function createApcInteriorView(): ApcInteriorView {
       subfocusEnabled = enabled;
       if (!enabled) clearPicks();
       applyVisibility();
+      applyCubeIsolation();
       if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
     },
+    setCubeFocus(cell: number | null) {
+      const next = cell !== null && cell >= 0 ? cell : null;
+      if (next === cubeFocusCell) return;
+      cubeFocusCell = next;
+      clearSubcellPicks();
+      applyCubeIsolation();
+    },
     pickCell,
+    pickSubcell(ndc: THREE.Vector2, camera: THREE.Camera) {
+      if (cubeFocusCell === null) return -1;
+      const coords = cellToCoords(cubeFocusCell);
+      if (!coords || coords.y !== level) return -1;
+
+      pickRaycaster.setFromCamera(ndc, camera);
+      inverseWorld.copy(group.matrixWorld).invert();
+      localRay.copy(pickRaycaster.ray).applyMatrix4(inverseWorld);
+
+      cellCentre(coords.x, coords.y, coords.z, hull, scratchPosition);
+      const half = size * 0.5;
+      scratchBox.min.set(
+        scratchPosition.x - half,
+        scratchPosition.y - half,
+        scratchPosition.z - half,
+      );
+      scratchBox.max.set(
+        scratchPosition.x + half,
+        scratchPosition.y + half,
+        scratchPosition.z + half,
+      );
+
+      if (!localRay.intersectBox(scratchBox, scratchHit)) return -1;
+
+      const relX = Math.min(Math.max((scratchHit.x - scratchBox.min.x) / (size * 0.5), 0), 1.999999);
+      const relY = Math.min(Math.max((scratchHit.y - scratchBox.min.y) / (size * 0.5), 0), 1.999999);
+      const relZ = Math.min(Math.max((scratchHit.z - scratchBox.min.z) / (size * 0.5), 0), 1.999999);
+      const lx = Math.floor(relX);
+      const ly = Math.floor(relY);
+      const lz = Math.floor(relZ);
+      return lx + 2 * (lz + 2 * ly);
+    },
     setHoveredCell(cell: number) {
       if (cell === hoveredCell) return;
       hoveredCell = cell;
@@ -430,7 +624,18 @@ export function createApcInteriorView(): ApcInteriorView {
       selectedCell = cell;
       updateHighlights();
     },
+    setHoveredSubcell(local: number) {
+      if (local === hoveredSubcell) return;
+      hoveredSubcell = local;
+      updateSubcellLayer();
+    },
+    setSelectedSubcell(local: number) {
+      if (local === selectedSubcell) return;
+      selectedSubcell = local;
+      updateSubcellLayer();
+    },
     selectedCell: () => selectedCell,
+    selectedSubcell: () => selectedSubcell,
     setLabelsVisible(visible: boolean) {
       labelsVisible = visible;
       if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
@@ -441,8 +646,14 @@ export function createApcInteriorView(): ApcInteriorView {
       machineGeometry.dispose();
       productGeometry.dispose();
       highlightGeometry.dispose();
+      subcellGeometry.dispose();
       (hoverMesh.material as THREE.Material).dispose();
       (selectMesh.material as THREE.Material).dispose();
+      for (const mesh of subcellPreviewMeshes) {
+        (mesh.material as THREE.Material).dispose();
+      }
+      (subcellHoverMesh.material as THREE.Material).dispose();
+      (subcellSelectMesh.material as THREE.Material).dispose();
     },
   };
 }

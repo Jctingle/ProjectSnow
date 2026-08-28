@@ -102,6 +102,14 @@ impl Subgrid {
             .then_some((self.occupant_kinds[index], self.occupant_ids[index]))
     }
 
+    pub fn occupant_kinds_slice(&self) -> &[u8] {
+        &self.occupant_kinds
+    }
+
+    pub fn occupant_ids_slice(&self) -> &[u32] {
+        &self.occupant_ids
+    }
+
     fn reserve(&mut self, cell: usize, footprint: u8, kind: u8, occupant_id: u32) -> bool {
         let Some(start) = self.index(cell, 0) else {
             return false;

@@ -14,11 +14,27 @@ export type InteriorTarget =
   | { kind: 'apc' }
   | { kind: 'building'; buildingId: number };
 
+export type FocusModeKind = 'normal' | 'focusInterior' | 'focusCube';
+
 let focusTarget: InteriorTarget | null = null;
 let savedCamera: CameraSnapshot | null = null;
+let selectedCubeCell: number | null = null;
+
+export function getFocusModeKind(): FocusModeKind {
+  if (!focusTarget) return 'normal';
+  return selectedCubeCell === null ? 'focusInterior' : 'focusCube';
+}
 
 export function isFocusMode(): boolean {
   return focusTarget !== null;
+}
+
+export function isCubeFocusMode(): boolean {
+  return focusTarget !== null && selectedCubeCell !== null;
+}
+
+export function selectedCube(): number | null {
+  return selectedCubeCell;
 }
 
 export function getFocusTarget(): InteriorTarget | null {
@@ -27,10 +43,33 @@ export function getFocusTarget(): InteriorTarget | null {
 
 export function enterFocusMode(target: InteriorTarget): void {
   focusTarget = target;
+  selectedCubeCell = null;
 }
 
 export function exitFocusMode(): void {
   focusTarget = null;
+  selectedCubeCell = null;
+}
+
+export function enterCubeFocus(cell: number): boolean {
+  if (!focusTarget || cell < 0) return false;
+  selectedCubeCell = cell;
+  return true;
+}
+
+export function exitCubeFocus(): void {
+  selectedCubeCell = null;
+}
+
+/// Pops one focus layer per call: cube -> interior -> normal.
+export function popFocusModeLevel(): FocusModeKind {
+  if (!focusTarget) return 'normal';
+  if (selectedCubeCell !== null) {
+    selectedCubeCell = null;
+    return 'focusInterior';
+  }
+  focusTarget = null;
+  return 'normal';
 }
 
 // Halo-ring orbit: azimuth-only rotation around the APC at a fixed elevation.
@@ -62,6 +101,7 @@ export function getFocusLevel(): number {
 }
 
 export function setFocusLevel(next: number): void {
+  if (isCubeFocusMode()) return;
   focusLevel = Math.min(Math.max(0, Math.round(next)), maxFocusLevel());
 }
 

@@ -1,5 +1,12 @@
 import { clearSelection } from './selection';
 import { toggleRecallUnits } from '../ui/devPanel';
+import { getFocusModeKind, isCubeFocusMode, popFocusModeLevel, type FocusModeKind } from '../focusMode';
+
+let onFocusModeChanged: ((mode: FocusModeKind) => void) | null = null;
+
+export function setFocusModeChangedHandler(handler: ((mode: FocusModeKind) => void) | null): void {
+  onFocusModeChanged = handler;
+}
 
 export function attachKeyboardShortcuts(): void {
   window.addEventListener('keydown', (event: KeyboardEvent) => {
@@ -8,7 +15,24 @@ export function attachKeyboardShortcuts(): void {
       return;
     }
 
+    if (event.repeat) return;
+
+    if (event.code === 'Space' && isCubeFocusMode()) {
+      event.preventDefault();
+      event.stopPropagation();
+      onFocusModeChanged?.(popFocusModeLevel());
+      return;
+    }
+
     if (event.key !== 'Escape') {
+      return;
+    }
+
+    const mode = getFocusModeKind();
+    if (mode !== 'normal') {
+      event.preventDefault();
+      event.stopPropagation();
+      onFocusModeChanged?.(popFocusModeLevel());
       return;
     }
 

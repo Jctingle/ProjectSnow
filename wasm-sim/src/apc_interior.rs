@@ -11,7 +11,8 @@ use wasm_bindgen::prelude::*;
 mod tests;
 
 use crate::lattice::{Dims, Dir, Lattice, CELL_INTERIOR, CELL_OUTSIDE};
-use crate::machines::{MachineGrid, MachineKind, NO_OUTPUT, PRODUCT_DEFAULT};
+use crate::machines::{MachineGrid, MachineKind, FULL_CUBE_FOOTPRINT, NO_OUTPUT, PRODUCT_DEFAULT};
+use crate::subgrid::Subgrid;
 
 /// Growth is additive from a fixed corner so a cell index never changes
 /// meaning. Recentering on expansion would invalidate stored machine cells,
@@ -22,6 +23,7 @@ const HULL_ORIGIN: (usize, usize, usize) = (0, 0, 0);
 pub struct ApcInterior {
     lattice: Lattice,
     machines: MachineGrid,
+    subgrid: Subgrid,
     hull_w: usize,
     hull_h: usize,
     hull_d: usize,
@@ -42,10 +44,12 @@ impl ApcInterior {
         let envelope = Dims::new(envelope_w, envelope_h, envelope_d);
         let lattice = Lattice::new(envelope);
         let machines = MachineGrid::new(lattice.cell_count(), transfer_interval.max(1));
+        let subgrid = Subgrid::new(lattice.cell_count());
 
         let mut interior = ApcInterior {
             lattice,
             machines,
+            subgrid,
             hull_w: 0,
             hull_h: 0,
             hull_d: 0,
@@ -141,6 +145,7 @@ impl ApcInterior {
             let remainder = cell % level;
             remainder % dims.w < next_w && y < next_h && remainder / dims.w < next_d
         });
+        self.rebuild_subgrid_from_machines();
     }
 
     // --- indexing ----------------------------------------------------------
@@ -212,6 +217,18 @@ impl ApcInterior {
         self.machines.cells_ptr()
     }
 
+    pub fn machine_ids_ptr(&self) -> *const u32 {
+        self.machines.ids_ptr()
+    }
+
+    pub fn machine_parent_cells_ptr(&self) -> *const u32 {
+        self.machines.parent_cells_ptr()
+    }
+
+    pub fn machine_footprints_ptr(&self) -> *const u8 {
+        self.machines.footprints_ptr()
+    }
+
     pub fn machine_kinds_ptr(&self) -> *const u8 {
         self.machines.kinds_ptr()
     }
@@ -224,6 +241,22 @@ impl ApcInterior {
         self.machines.holding_ptr()
     }
 
+    pub fn subgrid_occupant_kinds_len(&self) -> usize {
+        self.subgrid.occupant_kinds_slice().len()
+    }
+
+    pub fn subgrid_occupant_kinds_ptr(&self) -> *const u8 {
+        self.subgrid.occupant_kinds_slice().as_ptr()
+    }
+
+    pub fn subgrid_occupant_ids_len(&self) -> usize {
+        self.subgrid.occupant_ids_slice().len()
+    }
+
+    pub fn subgrid_occupant_ids_ptr(&self) -> *const u32 {
+        self.subgrid.occupant_ids_slice().as_ptr()
+    }
+
     pub fn set_transfer_interval(&mut self, interval: u32) {
         self.machines.set_transfer_interval(interval.max(1));
     }
@@ -231,6 +264,7 @@ impl ApcInterior {
     /// Removes every machine so a layout can be rebuilt from scratch.
     pub fn clear_machines(&mut self) {
         self.machines.retain(|_| false);
+        self.subgrid = Subgrid::new(self.lattice.cell_count());
     }
 
     /// Keeps the product identifier from having to cross the boundary.
@@ -250,10 +284,28 @@ impl ApcInterior {
 
 impl ApcInterior {
     fn insert_machine(&mut self, cell: usize, kind: MachineKind, output_face: u8) -> bool {
-        if cell >= self.lattice.cell_count() || self.machines.slot_at_cell(cell).is_some() {
+        if cell >= self.lattice.cell_count() {
             return false;
         }
-        self.machines.add_machine(cell, kind as u8, output_face);
+        let machine_id = self.machines.next_machine_id();
+        if !self
+            .subgrid
+            .reserve_machine(cell, FULL_CUBE_FOOTPRINT, machine_id)
+        {
+            return false;
+        }
+        self.machines
+            .add_machine_with_footprint(cell, FULL_CUBE_FOOTPRINT, kind as u8, output_face);
         true
+    }
+
+    fn rebuild_subgrid_from_machines(&mut self) {
+        self.subgrid = Subgrid::new(self.lattice.cell_count());
+        for slot in 0..self.machines.machine_count() {
+            let cell = self.machines.cell_of(slot);
+            let footprint = self.machines.footprint_of(slot);
+            let machine_id = self.machines.id_of(slot);
+            let _ = self.subgrid.reserve_machine(cell, footprint, machine_id);
+        }
     }
 }
