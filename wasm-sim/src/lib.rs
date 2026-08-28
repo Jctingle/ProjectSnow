@@ -6,6 +6,7 @@ mod lattice;
 mod machines;
 mod rng;
 mod shard_ring;
+mod subgrid;
 mod terrain;
 mod units;
 
