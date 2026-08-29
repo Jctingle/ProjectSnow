@@ -140,9 +140,9 @@ export const UNIT_SPACING = 0.35;
 export const APC_GRID_CELL_SIZE = 0.3;
 
 // Starting hull extent in cells (x = width, y = height, z = length).
-export const APC_CELLS_DEFAULT_X = 2;
+export const APC_CELLS_DEFAULT_X = 1;
 export const APC_CELLS_DEFAULT_Y = 1;
-export const APC_CELLS_DEFAULT_Z = 3;
+export const APC_CELLS_DEFAULT_Z = 2;
 
 // Largest extent the hull can ever reach. Lattice arrays are allocated at this
 // size up front so cell indices stay stable across expansion.
