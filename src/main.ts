@@ -32,7 +32,7 @@ import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setAp
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
-import { setFocusModeChangedHandler } from './input/keyboard';
+import { setFocusModeChangedHandler, setFocusModeEnterHandler } from './input/keyboard';
 import {
   createTierOverlayMesh,
   disposeTierOverlayMesh,
@@ -224,18 +224,25 @@ setFocusModeChangedHandler((mode) => {
   applyFocusUiState(mode);
 });
 
+function enterApcFocusMode(): void {
+  if (isFocusMode()) return;
+  saveCameraSnapshot(camera);
+  resetFocusAzimuth();
+  resetFocusLevel();
+  enterFocusMode({ kind: 'apc' });
+  apcInteriorView.setFocusLevel(0);
+  applyFocusUiState(getFocusModeKind());
+}
+
+setFocusModeEnterHandler(enterApcFocusMode);
+
 focusButton.addEventListener('click', () => {
-  if (isFocusMode()) {
-    exitFocusMode();
-    applyFocusUiState('normal');
-  } else {
-    saveCameraSnapshot(camera);
-    resetFocusAzimuth();
-    resetFocusLevel();
-    enterFocusMode({ kind: 'apc' });
-    apcInteriorView.setFocusLevel(0);
-    applyFocusUiState(getFocusModeKind());
+  if (!isFocusMode()) {
+    enterApcFocusMode();
+    return;
   }
+  exitFocusMode();
+  applyFocusUiState('normal');
 });
 
 attachFocusOrbitControls(renderer.domElement);

@@ -3,9 +3,14 @@ import { toggleRecallUnits } from '../ui/devPanel';
 import { getFocusModeKind, isCubeFocusMode, popFocusModeLevel, type FocusModeKind } from '../focusMode';
 
 let onFocusModeChanged: ((mode: FocusModeKind) => void) | null = null;
+let onFocusModeEnter: (() => void) | null = null;
 
 export function setFocusModeChangedHandler(handler: ((mode: FocusModeKind) => void) | null): void {
   onFocusModeChanged = handler;
+}
+
+export function setFocusModeEnterHandler(handler: (() => void) | null): void {
+  onFocusModeEnter = handler;
 }
 
 export function attachKeyboardShortcuts(): void {
@@ -16,6 +21,13 @@ export function attachKeyboardShortcuts(): void {
     }
 
     if (event.repeat) return;
+
+    if (event.key.toLowerCase() === 'f' && getFocusModeKind() === 'normal') {
+      event.preventDefault();
+      event.stopPropagation();
+      onFocusModeEnter?.();
+      return;
+    }
 
     if (event.code === 'Space' && isCubeFocusMode()) {
       event.preventDefault();
