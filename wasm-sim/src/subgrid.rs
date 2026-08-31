@@ -96,6 +96,43 @@ impl Subgrid {
         }
     }
 
+    /// Atomically moves one unit occupancy from a source subcell to an empty
+    /// target subcell. Fails without mutation when source/target are invalid,
+    /// occupied, or source does not contain the requested unit.
+    pub fn relocate_unit(
+        &mut self,
+        from_cell: usize,
+        from_local: usize,
+        to_cell: usize,
+        to_local: usize,
+        unit_id: u32,
+    ) -> bool {
+        let Some(from_index) = self.index(from_cell, from_local) else {
+            return false;
+        };
+        let Some(to_index) = self.index(to_cell, to_local) else {
+            return false;
+        };
+
+        if self.occupant_kinds[from_index] != OCCUPANT_UNIT || self.occupant_ids[from_index] != unit_id {
+            return false;
+        }
+
+        if from_index == to_index {
+            return true;
+        }
+
+        if self.occupant_kinds[to_index] != OCCUPANT_NONE {
+            return false;
+        }
+
+        self.occupant_kinds[from_index] = OCCUPANT_NONE;
+        self.occupant_ids[from_index] = EMPTY_OCCUPANT;
+        self.occupant_kinds[to_index] = OCCUPANT_UNIT;
+        self.occupant_ids[to_index] = unit_id;
+        true
+    }
+
     pub fn occupant(&self, cell: usize, local: usize) -> Option<(u8, u32)> {
         let index = self.index(cell, local)?;
         (self.occupant_kinds[index] != OCCUPANT_NONE)
@@ -201,5 +238,24 @@ mod tests {
         assert_eq!(grid.occupant(0, 0), None);
         assert_eq!(grid.occupant(0, 1), None);
         assert_eq!(grid.occupant(0, 2), Some((OCCUPANT_UNIT, 20)));
+    }
+
+    #[test]
+    fn relocate_unit_moves_when_source_matches_and_target_is_empty() {
+        let mut grid = Subgrid::new(2);
+        assert!(grid.reserve_unit(0, 1, 42));
+        assert!(grid.relocate_unit(0, 1, 1, 0, 42));
+        assert_eq!(grid.occupant(0, 1), None);
+        assert_eq!(grid.occupant(1, 0), Some((OCCUPANT_UNIT, 42)));
+    }
+
+    #[test]
+    fn relocate_unit_fails_atomically_when_target_is_occupied() {
+        let mut grid = Subgrid::new(2);
+        assert!(grid.reserve_unit(0, 1, 42));
+        assert!(grid.reserve_machine(1, 0b0000_0001, 7));
+        assert!(!grid.relocate_unit(0, 1, 1, 0, 42));
+        assert_eq!(grid.occupant(0, 1), Some((OCCUPANT_UNIT, 42)));
+        assert!(matches!(grid.occupant(1, 0), Some((OCCUPANT_MACHINE, 7))));
     }
 }

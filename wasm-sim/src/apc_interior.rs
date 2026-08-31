@@ -12,7 +12,7 @@ mod tests;
 
 use crate::lattice::{Dims, Dir, Lattice, CELL_INTERIOR, CELL_OUTSIDE};
 use crate::machines::{MachineGrid, MachineKind, FULL_CUBE_FOOTPRINT, NO_OUTPUT, PRODUCT_DEFAULT};
-use crate::subgrid::Subgrid;
+use crate::subgrid::{Subgrid, OCCUPANT_MACHINE, OCCUPANT_UNIT};
 
 const FLOOR_SUBCELLS_PER_CELL: usize = 4;
 const EMPTY_UNIT_SLOT_ID: u32 = u32::MAX;
@@ -44,6 +44,30 @@ pub enum UnitSpecialization {
     Engineer = 3,
     Pilot = 4,
     Scout = 5,
+}
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InteriorMoveAction {
+    Stay = 0,
+    NegX = 1,
+    PosX = 2,
+    NegZ = 3,
+    PosZ = 4,
+}
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InteriorMoveResult {
+    Ok = 0,
+    BlockedNoUnitAtSource = 1,
+    BlockedInvalidSourceSubcell = 2,
+    BlockedInvalidTargetSubcell = 3,
+    BlockedOutOfBounds = 4,
+    BlockedTopology = 5,
+    BlockedByMachine = 6,
+    BlockedByUnit = 7,
+    BlockedMode = 8,
 }
 
 struct InteriorUnitDomain {
@@ -449,6 +473,119 @@ impl ApcInterior {
 
     pub fn clear_interior_unit_profiles(&mut self) {
         self.units.clear();
+        self.rebuild_subgrid_from_machines();
+    }
+
+    pub fn place_interior_unit(&mut self, unit_id: u32, cell: usize, local: u8) -> bool {
+        if !Self::is_floor_local(local) || cell >= self.lattice.cell_count() {
+            return false;
+        }
+        if self.lattice.cell_kind(cell) != CELL_INTERIOR {
+            return false;
+        }
+
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return false;
+        };
+
+        let current_cell = self.units.cells[slot];
+        let current_local = self.units.subcells[slot];
+        if current_cell != EMPTY_UNIT_CELL && current_local != EMPTY_UNIT_SUBCELL {
+            let from_cell = current_cell as usize;
+            let from_local = current_local as usize;
+            if from_cell == cell && from_local == local as usize {
+                return true;
+            }
+            if !self
+                .subgrid
+                .relocate_unit(from_cell, from_local, cell, local as usize, unit_id)
+            {
+                return false;
+            }
+        } else if !self.subgrid.reserve_unit(cell, local as usize, unit_id) {
+            return false;
+        }
+
+        self.units.cells[slot] = cell as u32;
+        self.units.subcells[slot] = local;
+        true
+    }
+
+    pub fn clear_interior_unit_placement(&mut self, unit_id: u32) -> bool {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return false;
+        };
+        if self.units.cells[slot] == EMPTY_UNIT_CELL {
+            return true;
+        }
+        self.subgrid.release(OCCUPANT_UNIT, unit_id);
+        self.units.cells[slot] = EMPTY_UNIT_CELL;
+        self.units.subcells[slot] = EMPTY_UNIT_SUBCELL;
+        true
+    }
+
+    pub fn set_interior_unit_mode(&mut self, unit_id: u32, mode: InteriorUnitMode) -> bool {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return false;
+        };
+        self.units.modes[slot] = mode as u8;
+        true
+    }
+
+    pub fn try_move_interior_unit(
+        &mut self,
+        unit_id: u32,
+        action: InteriorMoveAction,
+    ) -> InteriorMoveResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorMoveResult::BlockedNoUnitAtSource;
+        };
+        let source_cell = self.units.cells[slot];
+        let source_local = self.units.subcells[slot];
+        if source_cell == EMPTY_UNIT_CELL || source_local == EMPTY_UNIT_SUBCELL {
+            return InteriorMoveResult::BlockedNoUnitAtSource;
+        }
+        self.try_move_slot(slot, source_cell as usize, source_local, action)
+    }
+
+    pub fn try_move_interior_unit_from(
+        &mut self,
+        unit_id: u32,
+        source_cell: usize,
+        source_local: u8,
+        action: InteriorMoveAction,
+    ) -> InteriorMoveResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorMoveResult::BlockedNoUnitAtSource;
+        };
+        if !Self::is_floor_local(source_local) {
+            return InteriorMoveResult::BlockedInvalidSourceSubcell;
+        }
+        if self.units.cells[slot] != source_cell as u32 || self.units.subcells[slot] != source_local {
+            return InteriorMoveResult::BlockedNoUnitAtSource;
+        }
+        self.try_move_slot(slot, source_cell, source_local, action)
+    }
+
+    /// Packed result used by tests/debug tooling.
+    /// bits 0..31 = target cell (u32::MAX on failure)
+    /// bits 32..39 = target local (u8::MAX on failure)
+    /// bits 40..47 = InteriorMoveResult code
+    pub fn resolve_interior_unit_target(
+        &self,
+        source_cell: usize,
+        source_local: u8,
+        action: InteriorMoveAction,
+    ) -> u64 {
+        let result = self.resolve_target(source_cell, source_local, action);
+        match result {
+            Ok((target_cell, target_local)) => {
+                (target_cell as u64) | ((target_local as u64) << 32) | ((InteriorMoveResult::Ok as u64) << 40)
+            }
+            Err(code) => {
+                (u32::MAX as u64) | ((u8::MAX as u64) << 32) | ((code as u64) << 40)
+            }
+        }
     }
 
     pub fn interior_unit_schema_versions_len(&self) -> usize {
@@ -641,5 +778,158 @@ impl ApcInterior {
             let machine_id = self.machines.id_of(slot);
             let _ = self.subgrid.reserve_machine(cell, footprint, machine_id);
         }
+
+        for slot in 0..self.units.count() {
+            let unit_id = self.units.unit_ids[slot];
+            let cell = self.units.cells[slot];
+            let local = self.units.subcells[slot];
+            if unit_id == EMPTY_UNIT_SLOT_ID || cell == EMPTY_UNIT_CELL || local == EMPTY_UNIT_SUBCELL {
+                continue;
+            }
+            if !Self::is_floor_local(local) {
+                self.units.cells[slot] = EMPTY_UNIT_CELL;
+                self.units.subcells[slot] = EMPTY_UNIT_SUBCELL;
+                continue;
+            }
+            let placed = self
+                .subgrid
+                .reserve_unit(cell as usize, local as usize, unit_id);
+            if !placed {
+                self.units.cells[slot] = EMPTY_UNIT_CELL;
+                self.units.subcells[slot] = EMPTY_UNIT_SUBCELL;
+            }
+        }
+    }
+
+    fn is_floor_local(local: u8) -> bool {
+        local < FLOOR_SUBCELLS_PER_CELL as u8
+    }
+
+    fn unit_slot_by_id(&self, unit_id: u32) -> Option<usize> {
+        (0..self.units.count()).find(|&slot| self.units.unit_ids[slot] == unit_id)
+    }
+
+    fn can_move_interior(mode: u8) -> bool {
+        mode == InteriorUnitMode::BoardedIdle as u8
+    }
+
+    fn try_move_slot(
+        &mut self,
+        slot: usize,
+        source_cell: usize,
+        source_local: u8,
+        action: InteriorMoveAction,
+    ) -> InteriorMoveResult {
+        if !Self::is_floor_local(source_local) {
+            return InteriorMoveResult::BlockedInvalidSourceSubcell;
+        }
+        if source_cell >= self.lattice.cell_count() {
+            return InteriorMoveResult::BlockedOutOfBounds;
+        }
+        if self.lattice.cell_kind(source_cell) != CELL_INTERIOR {
+            return InteriorMoveResult::BlockedTopology;
+        }
+        if !Self::can_move_interior(self.units.modes[slot]) {
+            return InteriorMoveResult::BlockedMode;
+        }
+
+        let unit_id = self.units.unit_ids[slot];
+        if !matches!(
+            self.subgrid.occupant(source_cell, source_local as usize),
+            Some((OCCUPANT_UNIT, id)) if id == unit_id
+        ) {
+            return InteriorMoveResult::BlockedNoUnitAtSource;
+        }
+
+        let (target_cell, target_local) = match self.resolve_target(source_cell, source_local, action) {
+            Ok(target) => target,
+            Err(code) => return code,
+        };
+
+        if !Self::is_floor_local(target_local) {
+            return InteriorMoveResult::BlockedInvalidTargetSubcell;
+        }
+
+        if target_cell == source_cell && target_local == source_local {
+            return InteriorMoveResult::Ok;
+        }
+
+        match self.subgrid.occupant(target_cell, target_local as usize) {
+            Some((OCCUPANT_MACHINE, _)) => return InteriorMoveResult::BlockedByMachine,
+            Some((OCCUPANT_UNIT, _)) => return InteriorMoveResult::BlockedByUnit,
+            Some(_) => return InteriorMoveResult::BlockedTopology,
+            None => {}
+        }
+
+        if !self.subgrid.relocate_unit(
+            source_cell,
+            source_local as usize,
+            target_cell,
+            target_local as usize,
+            unit_id,
+        ) {
+            return InteriorMoveResult::BlockedTopology;
+        }
+
+        self.units.cells[slot] = target_cell as u32;
+        self.units.subcells[slot] = target_local;
+        InteriorMoveResult::Ok
+    }
+
+    fn resolve_target(
+        &self,
+        source_cell: usize,
+        source_local: u8,
+        action: InteriorMoveAction,
+    ) -> Result<(usize, u8), InteriorMoveResult> {
+        if !Self::is_floor_local(source_local) {
+            return Err(InteriorMoveResult::BlockedInvalidSourceSubcell);
+        }
+
+        if action == InteriorMoveAction::Stay {
+            return Ok((source_cell, source_local));
+        }
+
+        let sx = (source_local & 1) as i32;
+        let sz = ((source_local >> 1) & 1) as i32;
+        let (dx, dz, dir) = match action {
+            InteriorMoveAction::NegX => (-1, 0, Dir::NegX),
+            InteriorMoveAction::PosX => (1, 0, Dir::PosX),
+            InteriorMoveAction::NegZ => (0, -1, Dir::NegZ),
+            InteriorMoveAction::PosZ => (0, 1, Dir::PosZ),
+            InteriorMoveAction::Stay => return Ok((source_cell, source_local)),
+        };
+
+        let tx = sx + dx;
+        let tz = sz + dz;
+
+        if (0..=1).contains(&tx) && (0..=1).contains(&tz) {
+            let local = (tx + 2 * tz) as u8;
+            return Ok((source_cell, local));
+        }
+
+        let Some(neighbor) = self.lattice.neighbor(source_cell, dir) else {
+            return Err(InteriorMoveResult::BlockedOutOfBounds);
+        };
+        if self.lattice.cell_kind(neighbor) != CELL_INTERIOR {
+            return Err(InteriorMoveResult::BlockedTopology);
+        }
+
+        let wrapped_x = if tx < 0 {
+            1
+        } else if tx > 1 {
+            0
+        } else {
+            tx
+        };
+        let wrapped_z = if tz < 0 {
+            1
+        } else if tz > 1 {
+            0
+        } else {
+            tz
+        };
+        let local = (wrapped_x + 2 * wrapped_z) as u8;
+        Ok((neighbor, local))
     }
 }

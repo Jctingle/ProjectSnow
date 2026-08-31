@@ -1,4 +1,11 @@
-import init, { ApcInterior, Sim, UnitSpecialization } from 'wasm-sim';
+import init, {
+  ApcInterior,
+  InteriorMoveAction,
+  InteriorMoveResult,
+  InteriorUnitMode,
+  Sim,
+  UnitSpecialization,
+} from 'wasm-sim';
 import {
   APC_CELLS_DEFAULT_X,
   APC_CELLS_DEFAULT_Y,
@@ -32,6 +39,8 @@ export const SEEK_APC = 0;
 export const SEEK_RANDOM = 1;
 
 export { UnitSpecialization };
+export { InteriorMoveAction, InteriorMoveResult };
+export { InteriorUnitMode };
 
 let sim: Sim | null = null;
 let apcInterior: ApcInterior | null = null;
@@ -337,6 +346,39 @@ export function registerInteriorUnitProfile(
 
 export function clearInteriorUnitProfiles(): void {
   getApcInterior().clear_interior_unit_profiles();
+}
+
+export function placeInteriorUnit(unitId: number, cell: number, local: number): boolean {
+  return getApcInterior().place_interior_unit(unitId, cell, local);
+}
+
+export function clearInteriorUnitPlacement(unitId: number): boolean {
+  return getApcInterior().clear_interior_unit_placement(unitId);
+}
+
+export function setInteriorUnitMode(unitId: number, mode: InteriorUnitMode): boolean {
+  return getApcInterior().set_interior_unit_mode(unitId, mode);
+}
+
+export function tryMoveInteriorUnit(
+  unitId: number,
+  action: InteriorMoveAction,
+): InteriorMoveResult {
+  return getApcInterior().try_move_interior_unit(unitId, action);
+}
+
+export function tryMoveInteriorUnitFrom(
+  unitId: number,
+  sourceCell: number,
+  sourceLocal: number,
+  action: InteriorMoveAction,
+): InteriorMoveResult {
+  return getApcInterior().try_move_interior_unit_from(
+    unitId,
+    sourceCell,
+    sourceLocal,
+    action,
+  );
 }
 
 export function getInteriorUnitSchemaVersions(): Uint16Array {

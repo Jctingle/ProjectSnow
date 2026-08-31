@@ -374,3 +374,147 @@ fn clearing_profiles_resets_domain_back_to_empty() {
         0
     );
 }
+
+fn unit_at(interior: &ApcInterior, unit_id: u32) -> Option<(usize, u8)> {
+    let ids = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_ids_ptr(),
+            interior.interior_unit_ids_len(),
+        )
+    };
+    let cells = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_cells_ptr(),
+            interior.interior_unit_cells_len(),
+        )
+    };
+    let locals = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_subcells_ptr(),
+            interior.interior_unit_subcells_len(),
+        )
+    };
+
+    for i in 0..interior.interior_unit_count() {
+        if ids[i] == unit_id {
+            if cells[i] == u32::MAX || locals[i] == u8::MAX {
+                return None;
+            }
+            return Some((cells[i] as usize, locals[i]));
+        }
+    }
+    None
+}
+
+#[test]
+fn move_within_same_cell_floor_subgrid_succeeds() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::Ok as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 1)));
+}
+
+#[test]
+fn move_crosses_into_adjacent_cell_when_local_step_overflows() {
+    let mut interior = interior();
+    interior.set_hull_extent(3, 1, 3);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let source_cell = interior.cell_index(0, 0, 0);
+    let target_cell = interior.cell_index(1, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, source_cell, 1));
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::Ok as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((target_cell, 0)));
+}
+
+#[test]
+fn moving_into_machine_occupied_target_is_blocked() {
+    let mut interior = interior();
+    interior.set_hull_extent(2, 1, 1);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let source_cell = interior.cell_index(0, 0, 0);
+    let machine_cell = interior.cell_index(1, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, source_cell, 1));
+    assert!(interior.add_machine_without_output(machine_cell, MachineKind::Plain));
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::BlockedByMachine as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((source_cell, 1)));
+}
+
+#[test]
+fn moving_into_unit_occupied_target_is_blocked() {
+    let mut interior = interior();
+    let a = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let b = interior.register_interior_unit_profile(UnitSpecialization::Medic) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(a, cell, 0));
+    assert!(interior.place_interior_unit(b, cell, 1));
+
+    let result = interior.try_move_interior_unit(a, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::BlockedByUnit as u8);
+    assert_eq!(unit_at(&interior, a), Some((cell, 0)));
+    assert_eq!(unit_at(&interior, b), Some((cell, 1)));
+}
+
+#[test]
+fn top_layer_source_subcell_is_rejected() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    let result = interior.try_move_interior_unit_from(
+        unit_id,
+        cell,
+        4,
+        InteriorMoveAction::Stay,
+    );
+    assert_eq!(result as u8, InteriorMoveResult::BlockedInvalidSourceSubcell as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 0)));
+}
+
+#[test]
+fn out_of_bounds_neighbor_move_is_rejected_without_mutation() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::NegX);
+    assert_eq!(result as u8, InteriorMoveResult::BlockedOutOfBounds as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 0)));
+}
+
+#[test]
+fn mode_gate_blocks_interior_movement() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    assert!(interior.set_interior_unit_mode(unit_id, InteriorUnitMode::Deployed));
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::BlockedMode as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 0)));
+}
+
+#[test]
+fn resolve_target_packs_success_payload() {
+    let interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+    let packed = interior.resolve_interior_unit_target(cell, 0, InteriorMoveAction::PosX);
+    let target_cell = (packed & 0xffff_ffff) as u32;
+    let target_local = ((packed >> 32) & 0xff) as u8;
+    let code = ((packed >> 40) & 0xff) as u8;
+
+    assert_eq!(target_cell as usize, cell);
+    assert_eq!(target_local, 1);
+    assert_eq!(code, InteriorMoveResult::Ok as u8);
+}
