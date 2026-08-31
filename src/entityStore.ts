@@ -1,4 +1,4 @@
-import init, { ApcInterior, Sim } from 'wasm-sim';
+import init, { ApcInterior, Sim, UnitSpecialization } from 'wasm-sim';
 import {
   APC_CELLS_DEFAULT_X,
   APC_CELLS_DEFAULT_Y,
@@ -30,6 +30,8 @@ export const programId = new Uint16Array(MAX_UNITS);
 
 export const SEEK_APC = 0;
 export const SEEK_RANDOM = 1;
+
+export { UnitSpecialization };
 
 let sim: Sim | null = null;
 let apcInterior: ApcInterior | null = null;
@@ -150,9 +152,11 @@ export function activeCount(): number {
 
 type U8Cache = { view: Uint8Array; ptr: number; length: number } | null;
 type U32Cache = { view: Uint32Array; ptr: number; length: number } | null;
+type U16Cache = { view: Uint16Array; ptr: number; length: number } | null;
 
 const EMPTY_U8 = new Uint8Array(0);
 const EMPTY_U32 = new Uint32Array(0);
+const EMPTY_U16 = new Uint16Array(0);
 
 // Machine arrays are reallocated when a machine is added, so the pointer is
 // compared as well as the buffer identity.
@@ -180,6 +184,18 @@ function cacheU32(cache: U32Cache, ptr: number, length: number): U32Cache {
   return { view: new Uint32Array(memory.buffer, ptr, length), ptr, length };
 }
 
+function cacheU16(cache: U16Cache, ptr: number, length: number): U16Cache {
+  if (
+    cache &&
+    cache.ptr === ptr &&
+    cache.length === length &&
+    cache.view.buffer === memory.buffer
+  ) {
+    return cache;
+  }
+  return { view: new Uint16Array(memory.buffer, ptr, length), ptr, length };
+}
+
 let cellKindCache: U8Cache = null;
 let faceXCache: U8Cache = null;
 let faceYCache: U8Cache = null;
@@ -191,6 +207,24 @@ let machineParentCellsCache: U32Cache = null;
 let machineFootprintsCache: U8Cache = null;
 let subgridOccupantKindsCache: U8Cache = null;
 let subgridOccupantIdsCache: U32Cache = null;
+let interiorUnitSchemaVersionsCache: U16Cache = null;
+let interiorUnitIdsCache: U32Cache = null;
+let interiorUnitCellsCache: U32Cache = null;
+let interiorUnitSubcellsCache: U8Cache = null;
+let interiorUnitModesCache: U8Cache = null;
+let interiorUnitSpecializationsCache: U8Cache = null;
+let interiorUnitHealthCurrentCache: U16Cache = null;
+let interiorUnitHealthMaxCache: U16Cache = null;
+let interiorUnitCombatSkillCache: U16Cache = null;
+let interiorUnitMachineOperationSkillCache: U16Cache = null;
+let interiorUnitVehicleOperationSkillCache: U16Cache = null;
+let interiorUnitHeatCapacityCache: U16Cache = null;
+let interiorUnitHeatRegenCache: U16Cache = null;
+let interiorUnitUpgradePointsCache: U16Cache = null;
+let interiorUnitAssignedMachineIdsCache: U32Cache = null;
+let interiorUnitEquipmentSlotsCache: U32Cache = null;
+let interiorUnitInventoryCapacityCache: U16Cache = null;
+let interiorUnitInventoryLoadCache: U16Cache = null;
 
 /** Cell kinds across the whole envelope. Changes only on hull expansion. */
 export function getApcCellKinds(): Uint8Array {
@@ -285,6 +319,240 @@ export function getApcSubgridOccupantIds(): Uint32Array {
     length,
   );
   return subgridOccupantIdsCache!.view;
+}
+
+export function interiorUnitCount(): number {
+  return getApcInterior().interior_unit_count();
+}
+
+export function interiorUnitCapacity(): number {
+  return getApcInterior().interior_unit_capacity();
+}
+
+export function registerInteriorUnitProfile(
+  specialization: UnitSpecialization = UnitSpecialization.Generalist,
+): number {
+  return getApcInterior().register_interior_unit_profile(specialization);
+}
+
+export function clearInteriorUnitProfiles(): void {
+  getApcInterior().clear_interior_unit_profiles();
+}
+
+export function getInteriorUnitSchemaVersions(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_schema_versions_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitSchemaVersionsCache = cacheU16(
+    interiorUnitSchemaVersionsCache,
+    interior.interior_unit_schema_versions_ptr(),
+    length,
+  );
+  return interiorUnitSchemaVersionsCache!.view;
+}
+
+export function getInteriorUnitIds(): Uint32Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_ids_len();
+  if (length === 0) return EMPTY_U32;
+  interiorUnitIdsCache = cacheU32(
+    interiorUnitIdsCache,
+    interior.interior_unit_ids_ptr(),
+    length,
+  );
+  return interiorUnitIdsCache!.view;
+}
+
+export function getInteriorUnitCells(): Uint32Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_cells_len();
+  if (length === 0) return EMPTY_U32;
+  interiorUnitCellsCache = cacheU32(
+    interiorUnitCellsCache,
+    interior.interior_unit_cells_ptr(),
+    length,
+  );
+  return interiorUnitCellsCache!.view;
+}
+
+export function getInteriorUnitSubcells(): Uint8Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_subcells_len();
+  if (length === 0) return EMPTY_U8;
+  interiorUnitSubcellsCache = cacheU8(
+    interiorUnitSubcellsCache,
+    interior.interior_unit_subcells_ptr(),
+    length,
+  );
+  return interiorUnitSubcellsCache!.view;
+}
+
+export function getInteriorUnitModes(): Uint8Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_modes_len();
+  if (length === 0) return EMPTY_U8;
+  interiorUnitModesCache = cacheU8(
+    interiorUnitModesCache,
+    interior.interior_unit_modes_ptr(),
+    length,
+  );
+  return interiorUnitModesCache!.view;
+}
+
+export function getInteriorUnitSpecializations(): Uint8Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_specializations_len();
+  if (length === 0) return EMPTY_U8;
+  interiorUnitSpecializationsCache = cacheU8(
+    interiorUnitSpecializationsCache,
+    interior.interior_unit_specializations_ptr(),
+    length,
+  );
+  return interiorUnitSpecializationsCache!.view;
+}
+
+export function getInteriorUnitHealthCurrent(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_health_current_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitHealthCurrentCache = cacheU16(
+    interiorUnitHealthCurrentCache,
+    interior.interior_unit_health_current_ptr(),
+    length,
+  );
+  return interiorUnitHealthCurrentCache!.view;
+}
+
+export function getInteriorUnitHealthMax(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_health_max_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitHealthMaxCache = cacheU16(
+    interiorUnitHealthMaxCache,
+    interior.interior_unit_health_max_ptr(),
+    length,
+  );
+  return interiorUnitHealthMaxCache!.view;
+}
+
+export function getInteriorUnitCombatSkill(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_combat_skill_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitCombatSkillCache = cacheU16(
+    interiorUnitCombatSkillCache,
+    interior.interior_unit_combat_skill_ptr(),
+    length,
+  );
+  return interiorUnitCombatSkillCache!.view;
+}
+
+export function getInteriorUnitMachineOperationSkill(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_machine_operation_skill_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitMachineOperationSkillCache = cacheU16(
+    interiorUnitMachineOperationSkillCache,
+    interior.interior_unit_machine_operation_skill_ptr(),
+    length,
+  );
+  return interiorUnitMachineOperationSkillCache!.view;
+}
+
+export function getInteriorUnitVehicleOperationSkill(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_vehicle_operation_skill_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitVehicleOperationSkillCache = cacheU16(
+    interiorUnitVehicleOperationSkillCache,
+    interior.interior_unit_vehicle_operation_skill_ptr(),
+    length,
+  );
+  return interiorUnitVehicleOperationSkillCache!.view;
+}
+
+export function getInteriorUnitHeatCapacity(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_heat_capacity_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitHeatCapacityCache = cacheU16(
+    interiorUnitHeatCapacityCache,
+    interior.interior_unit_heat_capacity_ptr(),
+    length,
+  );
+  return interiorUnitHeatCapacityCache!.view;
+}
+
+export function getInteriorUnitHeatRegenPerTick(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_heat_regen_per_tick_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitHeatRegenCache = cacheU16(
+    interiorUnitHeatRegenCache,
+    interior.interior_unit_heat_regen_per_tick_ptr(),
+    length,
+  );
+  return interiorUnitHeatRegenCache!.view;
+}
+
+export function getInteriorUnitUpgradePoints(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_upgrade_points_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitUpgradePointsCache = cacheU16(
+    interiorUnitUpgradePointsCache,
+    interior.interior_unit_upgrade_points_ptr(),
+    length,
+  );
+  return interiorUnitUpgradePointsCache!.view;
+}
+
+export function getInteriorUnitAssignedMachineIds(): Uint32Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_assigned_machine_ids_len();
+  if (length === 0) return EMPTY_U32;
+  interiorUnitAssignedMachineIdsCache = cacheU32(
+    interiorUnitAssignedMachineIdsCache,
+    interior.interior_unit_assigned_machine_ids_ptr(),
+    length,
+  );
+  return interiorUnitAssignedMachineIdsCache!.view;
+}
+
+export function getInteriorUnitEquipmentSlots(): Uint32Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_equipment_slots_len();
+  if (length === 0) return EMPTY_U32;
+  interiorUnitEquipmentSlotsCache = cacheU32(
+    interiorUnitEquipmentSlotsCache,
+    interior.interior_unit_equipment_slots_ptr(),
+    length,
+  );
+  return interiorUnitEquipmentSlotsCache!.view;
+}
+
+export function getInteriorUnitInventoryCapacity(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_inventory_capacity_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitInventoryCapacityCache = cacheU16(
+    interiorUnitInventoryCapacityCache,
+    interior.interior_unit_inventory_capacity_ptr(),
+    length,
+  );
+  return interiorUnitInventoryCapacityCache!.view;
+}
+
+export function getInteriorUnitInventoryLoad(): Uint16Array {
+  const interior = getApcInterior();
+  const length = interior.interior_unit_inventory_load_len();
+  if (length === 0) return EMPTY_U16;
+  interiorUnitInventoryLoadCache = cacheU16(
+    interiorUnitInventoryLoadCache,
+    interior.interior_unit_inventory_load_ptr(),
+    length,
+  );
+  return interiorUnitInventoryLoadCache!.view;
 }
 
 export function spawnUnit(x: number, z: number): number {

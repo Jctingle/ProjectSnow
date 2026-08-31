@@ -1,6 +1,7 @@
 use super::*;
 use crate::lattice::CELL_OUTSIDE;
 use crate::subgrid::OCCUPANT_MACHINE;
+use std::slice;
 
 const ENVELOPE: (usize, usize, usize) = (15, 10, 20);
 const DEFAULT_HULL: (usize, usize, usize) = (2, 1, 3);
@@ -250,4 +251,126 @@ fn a_fresh_envelope_outside_the_hull_stays_outside() {
     let interior = interior();
     let far = interior.cell_index(14, 9, 19);
     assert_eq!(interior.lattice.cell_kind(far), CELL_OUTSIDE);
+}
+
+#[test]
+fn interior_unit_domain_capacity_tracks_floor_subcells() {
+    let interior = interior();
+    assert_eq!(interior.interior_unit_count(), 0);
+    assert_eq!(interior.interior_unit_capacity(), interior.cell_count() * 4);
+    assert_eq!(
+        interior.interior_unit_ids_len(),
+        interior.interior_unit_capacity()
+    );
+    assert_eq!(
+        interior.interior_unit_equipment_slots_len(),
+        interior.interior_unit_capacity() * 4
+    );
+}
+
+#[test]
+fn registering_profiles_assigns_stable_ids_and_defaults() {
+    let mut interior = interior();
+
+    assert_eq!(
+        interior.register_interior_unit_profile(UnitSpecialization::Pilot),
+        0
+    );
+    assert_eq!(
+        interior.register_interior_unit_profile(UnitSpecialization::Medic),
+        1
+    );
+    assert_eq!(interior.interior_unit_count(), 2);
+
+    let ids = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_ids_ptr(),
+            interior.interior_unit_ids_len(),
+        )
+    };
+    let modes = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_modes_ptr(),
+            interior.interior_unit_modes_len(),
+        )
+    };
+    let specializations = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_specializations_ptr(),
+            interior.interior_unit_specializations_len(),
+        )
+    };
+    let hp = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_health_current_ptr(),
+            interior.interior_unit_health_current_len(),
+        )
+    };
+    let heat = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_heat_capacity_ptr(),
+            interior.interior_unit_heat_capacity_len(),
+        )
+    };
+    let vehicle = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_vehicle_operation_skill_ptr(),
+            interior.interior_unit_vehicle_operation_skill_len(),
+        )
+    };
+    let machine = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_machine_operation_skill_ptr(),
+            interior.interior_unit_machine_operation_skill_len(),
+        )
+    };
+    let upgrades = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_upgrade_points_ptr(),
+            interior.interior_unit_upgrade_points_len(),
+        )
+    };
+
+    assert_eq!(ids[0], 0);
+    assert_eq!(ids[1], 1);
+    assert_eq!(modes[0], InteriorUnitMode::BoardedIdle as u8);
+    assert_eq!(modes[1], InteriorUnitMode::BoardedIdle as u8);
+    assert_eq!(specializations[0], UnitSpecialization::Pilot as u8);
+    assert_eq!(specializations[1], UnitSpecialization::Medic as u8);
+
+    assert_eq!(hp[0], 100);
+    assert_eq!(hp[1], 100);
+    assert_eq!(heat[0], 100);
+    assert_eq!(heat[1], 100);
+    assert_eq!(vehicle[0], 50);
+    assert_eq!(vehicle[1], 50);
+    assert_eq!(machine[0], 50);
+    assert_eq!(machine[1], 50);
+    assert_eq!(upgrades[0], 0);
+    assert_eq!(upgrades[1], 0);
+}
+
+#[test]
+fn clearing_profiles_resets_domain_back_to_empty() {
+    let mut interior = interior();
+    assert_eq!(
+        interior.register_interior_unit_profile(UnitSpecialization::Engineer),
+        0
+    );
+    assert_eq!(interior.interior_unit_count(), 1);
+
+    interior.clear_interior_unit_profiles();
+
+    assert_eq!(interior.interior_unit_count(), 0);
+    let ids = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_ids_ptr(),
+            interior.interior_unit_ids_len(),
+        )
+    };
+    assert_eq!(ids[0], u32::MAX);
+    assert_eq!(
+        interior.register_interior_unit_profile(UnitSpecialization::Generalist),
+        0
+    );
 }

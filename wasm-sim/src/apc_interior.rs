@@ -14,6 +14,175 @@ use crate::lattice::{Dims, Dir, Lattice, CELL_INTERIOR, CELL_OUTSIDE};
 use crate::machines::{MachineGrid, MachineKind, FULL_CUBE_FOOTPRINT, NO_OUTPUT, PRODUCT_DEFAULT};
 use crate::subgrid::Subgrid;
 
+const FLOOR_SUBCELLS_PER_CELL: usize = 4;
+const EMPTY_UNIT_SLOT_ID: u32 = u32::MAX;
+const EMPTY_MACHINE_ASSIGNMENT: u32 = u32::MAX;
+const EMPTY_EQUIPMENT_ITEM_ID: u32 = u32::MAX;
+const EMPTY_UNIT_CELL: u32 = u32::MAX;
+const EMPTY_UNIT_SUBCELL: u8 = u8::MAX;
+const UNIT_SCHEMA_VERSION_V1: u16 = 1;
+const EQUIPMENT_SLOT_COUNT: usize = 4;
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InteriorUnitMode {
+    BoardedIdle = 0,
+    AssignedMachine = 1,
+    Exiting = 2,
+    Deployed = 3,
+    Returning = 4,
+    Boarding = 5,
+    Incapacitated = 6,
+}
+
+#[wasm_bindgen]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UnitSpecialization {
+    Generalist = 0,
+    Assault = 1,
+    Medic = 2,
+    Engineer = 3,
+    Pilot = 4,
+    Scout = 5,
+}
+
+struct InteriorUnitDomain {
+    // Identity and schema versioning for migration-safe save blobs.
+    schema_versions: Vec<u16>,
+    unit_ids: Vec<u32>,
+
+    // Runtime location in APC lattice/subgrid space.
+    cells: Vec<u32>,
+    subcells: Vec<u8>,
+    modes: Vec<u8>,
+    specializations: Vec<u8>,
+
+    // Core gameplay stats.
+    health_current: Vec<u16>,
+    health_max: Vec<u16>,
+    combat_skill: Vec<u16>,
+    machine_operation_skill: Vec<u16>,
+    vehicle_operation_skill: Vec<u16>,
+    heat_capacity: Vec<u16>,
+    heat_regen_per_tick: Vec<u16>,
+    upgrade_points: Vec<u16>,
+
+    // Machine interaction anchors (used by assignment/operation systems).
+    assigned_machine_id: Vec<u32>,
+
+    // Future equipment/inventory systems.
+    equipment_slots: Vec<u32>,
+    inventory_capacity: Vec<u16>,
+    inventory_load: Vec<u16>,
+
+    count: usize,
+    capacity: usize,
+    next_unit_id: u32,
+}
+
+impl InteriorUnitDomain {
+    fn new(cell_count: usize) -> Self {
+        let capacity = cell_count * FLOOR_SUBCELLS_PER_CELL;
+        let mut domain = Self {
+            schema_versions: vec![0; capacity],
+            unit_ids: vec![EMPTY_UNIT_SLOT_ID; capacity],
+            cells: vec![EMPTY_UNIT_CELL; capacity],
+            subcells: vec![EMPTY_UNIT_SUBCELL; capacity],
+            modes: vec![InteriorUnitMode::BoardedIdle as u8; capacity],
+            specializations: vec![UnitSpecialization::Generalist as u8; capacity],
+            health_current: vec![0; capacity],
+            health_max: vec![0; capacity],
+            combat_skill: vec![0; capacity],
+            machine_operation_skill: vec![0; capacity],
+            vehicle_operation_skill: vec![0; capacity],
+            heat_capacity: vec![0; capacity],
+            heat_regen_per_tick: vec![0; capacity],
+            upgrade_points: vec![0; capacity],
+            assigned_machine_id: vec![EMPTY_MACHINE_ASSIGNMENT; capacity],
+            equipment_slots: vec![EMPTY_EQUIPMENT_ITEM_ID; capacity * EQUIPMENT_SLOT_COUNT],
+            inventory_capacity: vec![0; capacity],
+            inventory_load: vec![0; capacity],
+            count: 0,
+            capacity,
+            next_unit_id: 0,
+        };
+        domain.clear();
+        domain
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn count(&self) -> usize {
+        self.count
+    }
+
+    fn register_profile(&mut self, specialization: UnitSpecialization) -> i32 {
+        if self.count >= self.capacity {
+            return -1;
+        }
+        let slot = self.count;
+        self.count += 1;
+
+        let unit_id = self.next_unit_id;
+        self.next_unit_id = self
+            .next_unit_id
+            .checked_add(1)
+            .unwrap_or(self.next_unit_id);
+
+        self.schema_versions[slot] = UNIT_SCHEMA_VERSION_V1;
+        self.unit_ids[slot] = unit_id;
+        self.cells[slot] = EMPTY_UNIT_CELL;
+        self.subcells[slot] = EMPTY_UNIT_SUBCELL;
+        self.modes[slot] = InteriorUnitMode::BoardedIdle as u8;
+        self.specializations[slot] = specialization as u8;
+
+        self.health_current[slot] = 100;
+        self.health_max[slot] = 100;
+        self.combat_skill[slot] = 50;
+        self.machine_operation_skill[slot] = 50;
+        self.vehicle_operation_skill[slot] = 50;
+        self.heat_capacity[slot] = 100;
+        self.heat_regen_per_tick[slot] = 2;
+        self.upgrade_points[slot] = 0;
+
+        self.assigned_machine_id[slot] = EMPTY_MACHINE_ASSIGNMENT;
+        self.inventory_capacity[slot] = 8;
+        self.inventory_load[slot] = 0;
+        let equipment_base = slot * EQUIPMENT_SLOT_COUNT;
+        for i in 0..EQUIPMENT_SLOT_COUNT {
+            self.equipment_slots[equipment_base + i] = EMPTY_EQUIPMENT_ITEM_ID;
+        }
+
+        unit_id as i32
+    }
+
+    fn clear(&mut self) {
+        self.schema_versions.fill(0);
+        self.unit_ids.fill(EMPTY_UNIT_SLOT_ID);
+        self.cells.fill(EMPTY_UNIT_CELL);
+        self.subcells.fill(EMPTY_UNIT_SUBCELL);
+        self.modes.fill(InteriorUnitMode::BoardedIdle as u8);
+        self.specializations
+            .fill(UnitSpecialization::Generalist as u8);
+        self.health_current.fill(0);
+        self.health_max.fill(0);
+        self.combat_skill.fill(0);
+        self.machine_operation_skill.fill(0);
+        self.vehicle_operation_skill.fill(0);
+        self.heat_capacity.fill(0);
+        self.heat_regen_per_tick.fill(0);
+        self.upgrade_points.fill(0);
+        self.assigned_machine_id.fill(EMPTY_MACHINE_ASSIGNMENT);
+        self.equipment_slots.fill(EMPTY_EQUIPMENT_ITEM_ID);
+        self.inventory_capacity.fill(0);
+        self.inventory_load.fill(0);
+        self.count = 0;
+        self.next_unit_id = 0;
+    }
+}
+
 /// Growth is additive from a fixed corner so a cell index never changes
 /// meaning. Recentering on expansion would invalidate stored machine cells,
 /// saved blobs, and live JS views all at once.
@@ -24,6 +193,7 @@ pub struct ApcInterior {
     lattice: Lattice,
     machines: MachineGrid,
     subgrid: Subgrid,
+    units: InteriorUnitDomain,
     hull_w: usize,
     hull_h: usize,
     hull_d: usize,
@@ -45,11 +215,13 @@ impl ApcInterior {
         let lattice = Lattice::new(envelope);
         let machines = MachineGrid::new(lattice.cell_count(), transfer_interval.max(1));
         let subgrid = Subgrid::new(lattice.cell_count());
+        let units = InteriorUnitDomain::new(lattice.cell_count());
 
         let mut interior = ApcInterior {
             lattice,
             machines,
             subgrid,
+            units,
             hull_w: 0,
             hull_h: 0,
             hull_d: 0,
@@ -259,6 +431,168 @@ impl ApcInterior {
 
     pub fn set_transfer_interval(&mut self, interval: u32) {
         self.machines.set_transfer_interval(interval.max(1));
+    }
+
+    // --- interior unit domain views ---------------------------------------
+
+    pub fn interior_unit_capacity(&self) -> usize {
+        self.units.capacity()
+    }
+
+    pub fn interior_unit_count(&self) -> usize {
+        self.units.count()
+    }
+
+    pub fn register_interior_unit_profile(&mut self, specialization: UnitSpecialization) -> i32 {
+        self.units.register_profile(specialization)
+    }
+
+    pub fn clear_interior_unit_profiles(&mut self) {
+        self.units.clear();
+    }
+
+    pub fn interior_unit_schema_versions_len(&self) -> usize {
+        self.units.schema_versions.len()
+    }
+
+    pub fn interior_unit_schema_versions_ptr(&self) -> *const u16 {
+        self.units.schema_versions.as_ptr()
+    }
+
+    pub fn interior_unit_ids_len(&self) -> usize {
+        self.units.unit_ids.len()
+    }
+
+    pub fn interior_unit_ids_ptr(&self) -> *const u32 {
+        self.units.unit_ids.as_ptr()
+    }
+
+    pub fn interior_unit_cells_len(&self) -> usize {
+        self.units.cells.len()
+    }
+
+    pub fn interior_unit_cells_ptr(&self) -> *const u32 {
+        self.units.cells.as_ptr()
+    }
+
+    pub fn interior_unit_subcells_len(&self) -> usize {
+        self.units.subcells.len()
+    }
+
+    pub fn interior_unit_subcells_ptr(&self) -> *const u8 {
+        self.units.subcells.as_ptr()
+    }
+
+    pub fn interior_unit_modes_len(&self) -> usize {
+        self.units.modes.len()
+    }
+
+    pub fn interior_unit_modes_ptr(&self) -> *const u8 {
+        self.units.modes.as_ptr()
+    }
+
+    pub fn interior_unit_specializations_len(&self) -> usize {
+        self.units.specializations.len()
+    }
+
+    pub fn interior_unit_specializations_ptr(&self) -> *const u8 {
+        self.units.specializations.as_ptr()
+    }
+
+    pub fn interior_unit_health_current_len(&self) -> usize {
+        self.units.health_current.len()
+    }
+
+    pub fn interior_unit_health_current_ptr(&self) -> *const u16 {
+        self.units.health_current.as_ptr()
+    }
+
+    pub fn interior_unit_health_max_len(&self) -> usize {
+        self.units.health_max.len()
+    }
+
+    pub fn interior_unit_health_max_ptr(&self) -> *const u16 {
+        self.units.health_max.as_ptr()
+    }
+
+    pub fn interior_unit_combat_skill_len(&self) -> usize {
+        self.units.combat_skill.len()
+    }
+
+    pub fn interior_unit_combat_skill_ptr(&self) -> *const u16 {
+        self.units.combat_skill.as_ptr()
+    }
+
+    pub fn interior_unit_machine_operation_skill_len(&self) -> usize {
+        self.units.machine_operation_skill.len()
+    }
+
+    pub fn interior_unit_machine_operation_skill_ptr(&self) -> *const u16 {
+        self.units.machine_operation_skill.as_ptr()
+    }
+
+    pub fn interior_unit_vehicle_operation_skill_len(&self) -> usize {
+        self.units.vehicle_operation_skill.len()
+    }
+
+    pub fn interior_unit_vehicle_operation_skill_ptr(&self) -> *const u16 {
+        self.units.vehicle_operation_skill.as_ptr()
+    }
+
+    pub fn interior_unit_heat_capacity_len(&self) -> usize {
+        self.units.heat_capacity.len()
+    }
+
+    pub fn interior_unit_heat_capacity_ptr(&self) -> *const u16 {
+        self.units.heat_capacity.as_ptr()
+    }
+
+    pub fn interior_unit_heat_regen_per_tick_len(&self) -> usize {
+        self.units.heat_regen_per_tick.len()
+    }
+
+    pub fn interior_unit_heat_regen_per_tick_ptr(&self) -> *const u16 {
+        self.units.heat_regen_per_tick.as_ptr()
+    }
+
+    pub fn interior_unit_upgrade_points_len(&self) -> usize {
+        self.units.upgrade_points.len()
+    }
+
+    pub fn interior_unit_upgrade_points_ptr(&self) -> *const u16 {
+        self.units.upgrade_points.as_ptr()
+    }
+
+    pub fn interior_unit_assigned_machine_ids_len(&self) -> usize {
+        self.units.assigned_machine_id.len()
+    }
+
+    pub fn interior_unit_assigned_machine_ids_ptr(&self) -> *const u32 {
+        self.units.assigned_machine_id.as_ptr()
+    }
+
+    pub fn interior_unit_equipment_slots_len(&self) -> usize {
+        self.units.equipment_slots.len()
+    }
+
+    pub fn interior_unit_equipment_slots_ptr(&self) -> *const u32 {
+        self.units.equipment_slots.as_ptr()
+    }
+
+    pub fn interior_unit_inventory_capacity_len(&self) -> usize {
+        self.units.inventory_capacity.len()
+    }
+
+    pub fn interior_unit_inventory_capacity_ptr(&self) -> *const u16 {
+        self.units.inventory_capacity.as_ptr()
+    }
+
+    pub fn interior_unit_inventory_load_len(&self) -> usize {
+        self.units.inventory_load.len()
+    }
+
+    pub fn interior_unit_inventory_load_ptr(&self) -> *const u16 {
+        self.units.inventory_load.as_ptr()
     }
 
     /// Removes every machine so a layout can be rebuilt from scratch.
