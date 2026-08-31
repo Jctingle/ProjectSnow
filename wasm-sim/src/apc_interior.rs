@@ -218,6 +218,7 @@ pub struct ApcInterior {
     machines: MachineGrid,
     subgrid: Subgrid,
     units: InteriorUnitDomain,
+    unit_rng_state: u32,
     hull_w: usize,
     hull_h: usize,
     hull_d: usize,
@@ -246,10 +247,12 @@ impl ApcInterior {
             machines,
             subgrid,
             units,
+            unit_rng_state: 0x9E37_79B9,
             hull_w: 0,
             hull_h: 0,
             hull_d: 0,
         };
+        interior.unit_rng_state = interior.default_unit_rng_seed(transfer_interval);
         interior.set_hull_extent(hull_w, hull_h, hull_d);
         interior
     }
@@ -532,6 +535,68 @@ impl ApcInterior {
         true
     }
 
+    pub fn set_interior_unit_rng_seed(&mut self, seed: u32) {
+        self.unit_rng_state = if seed == 0 { 1 } else { seed };
+    }
+
+    pub fn spawn_random_interior_unit(&mut self, specialization: UnitSpecialization) -> i32 {
+        let Some((cell, local)) = self.pick_random_free_floor_slot() else {
+            return -1;
+        };
+
+        let unit_id = self.units.register_profile(specialization);
+        if unit_id < 0 {
+            return -1;
+        }
+
+        if !self.place_interior_unit(unit_id as u32, cell, local) {
+            // Capacity/profile creation succeeded but placement failed due to a
+            // race with occupancy changes in this same tick; roll back profile.
+            self.units.count = self.units.count.saturating_sub(1);
+            let slot = self.units.count;
+            self.units.schema_versions[slot] = 0;
+            self.units.unit_ids[slot] = EMPTY_UNIT_SLOT_ID;
+            self.units.cells[slot] = EMPTY_UNIT_CELL;
+            self.units.subcells[slot] = EMPTY_UNIT_SUBCELL;
+            self.units.modes[slot] = InteriorUnitMode::BoardedIdle as u8;
+            self.units.specializations[slot] = UnitSpecialization::Generalist as u8;
+            self.units.health_current[slot] = 0;
+            self.units.health_max[slot] = 0;
+            self.units.combat_skill[slot] = 0;
+            self.units.machine_operation_skill[slot] = 0;
+            self.units.vehicle_operation_skill[slot] = 0;
+            self.units.heat_capacity[slot] = 0;
+            self.units.heat_regen_per_tick[slot] = 0;
+            self.units.upgrade_points[slot] = 0;
+            self.units.assigned_machine_id[slot] = EMPTY_MACHINE_ASSIGNMENT;
+            self.units.inventory_capacity[slot] = 0;
+            self.units.inventory_load[slot] = 0;
+            let equipment_base = slot * EQUIPMENT_SLOT_COUNT;
+            for i in 0..EQUIPMENT_SLOT_COUNT {
+                self.units.equipment_slots[equipment_base + i] = EMPTY_EQUIPMENT_ITEM_ID;
+            }
+            return -1;
+        }
+
+        unit_id
+    }
+
+    pub fn step_interior_unit_wander(&mut self) {
+        for slot in 0..self.units.count() {
+            let source_cell = self.units.cells[slot];
+            let source_local = self.units.subcells[slot];
+            if source_cell == EMPTY_UNIT_CELL || source_local == EMPTY_UNIT_SUBCELL {
+                continue;
+            }
+            if !Self::can_move_interior(self.units.modes[slot]) {
+                continue;
+            }
+
+            let action = self.random_move_action();
+            let _ = self.try_move_slot(slot, source_cell as usize, source_local, action);
+        }
+    }
+
     pub fn try_move_interior_unit(
         &mut self,
         unit_id: u32,
@@ -735,7 +800,7 @@ impl ApcInterior {
     /// Removes every machine so a layout can be rebuilt from scratch.
     pub fn clear_machines(&mut self) {
         self.machines.retain(|_| false);
-        self.subgrid = Subgrid::new(self.lattice.cell_count());
+        self.rebuild_subgrid_from_machines();
     }
 
     /// Keeps the product identifier from having to cross the boundary.
@@ -803,6 +868,79 @@ impl ApcInterior {
 
     fn is_floor_local(local: u8) -> bool {
         local < FLOOR_SUBCELLS_PER_CELL as u8
+    }
+
+    fn default_unit_rng_seed(&self, transfer_interval: u32) -> u32 {
+        let mut seed = self.envelope_w() as u32;
+        seed ^= (self.envelope_h() as u32).wrapping_mul(0x9E37_79B1);
+        seed ^= (self.envelope_d() as u32).wrapping_mul(0x85EB_CA77);
+        seed ^= transfer_interval.max(1).wrapping_mul(0xC2B2_AE3D);
+        if seed == 0 { 1 } else { seed }
+    }
+
+    fn next_unit_rng(&mut self) -> u32 {
+        let mut s = self.unit_rng_state;
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        self.unit_rng_state = if s == 0 { 1 } else { s };
+        self.unit_rng_state
+    }
+
+    fn random_move_action(&mut self) -> InteriorMoveAction {
+        match self.next_unit_rng() % 5 {
+            0 => InteriorMoveAction::Stay,
+            1 => InteriorMoveAction::NegX,
+            2 => InteriorMoveAction::PosX,
+            3 => InteriorMoveAction::NegZ,
+            _ => InteriorMoveAction::PosZ,
+        }
+    }
+
+    fn pick_random_free_floor_slot(&mut self) -> Option<(usize, u8)> {
+        let mut free_count = 0usize;
+        for y in 0..self.hull_h {
+            for z in 0..self.hull_d {
+                for x in 0..self.hull_w {
+                    let cell = self.lattice.cell_index(x, y, z);
+                    if self.lattice.cell_kind(cell) != CELL_INTERIOR {
+                        continue;
+                    }
+                    for local in 0..FLOOR_SUBCELLS_PER_CELL {
+                        if self.subgrid.occupant(cell, local).is_none() {
+                            free_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if free_count == 0 {
+            return None;
+        }
+
+        let mut choice = (self.next_unit_rng() as usize) % free_count;
+        for y in 0..self.hull_h {
+            for z in 0..self.hull_d {
+                for x in 0..self.hull_w {
+                    let cell = self.lattice.cell_index(x, y, z);
+                    if self.lattice.cell_kind(cell) != CELL_INTERIOR {
+                        continue;
+                    }
+                    for local in 0..FLOOR_SUBCELLS_PER_CELL {
+                        if self.subgrid.occupant(cell, local).is_some() {
+                            continue;
+                        }
+                        if choice == 0 {
+                            return Some((cell, local as u8));
+                        }
+                        choice -= 1;
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn unit_slot_by_id(&self, unit_id: u32) -> Option<usize> {

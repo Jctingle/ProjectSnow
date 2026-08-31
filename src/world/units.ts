@@ -1,4 +1,8 @@
-import { spawnUnit } from '../entityStore';
+import {
+  spawnRandomInteriorUnit as spawnRandomInteriorUnitFromStore,
+  spawnUnit,
+  type UnitSpecialization,
+} from '../entityStore';
 import { UNIT_COUNT, UNIT_SPACING } from '../sim/config';
 
 export function spawnInitialUnits(): void {
@@ -12,4 +16,10 @@ export function spawnInitialUnits(): void {
     const z = (row - (rows - 1) / 2) * UNIT_SPACING;
     spawnUnit(x, z);
   }
+}
+
+export function spawnRandomInteriorUnit(
+  specialization: UnitSpecialization,
+): number {
+  return spawnRandomInteriorUnitFromStore(specialization);
 }

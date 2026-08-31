@@ -20,6 +20,8 @@ export async function initSim(): Promise<void> {
 export function tick(delta: number): void {
   if (!ready) return;
   getSim().tick(delta);
+  // Interior units move on floor subcells in deterministic 5-action wander.
+  getApcInterior().step_interior_unit_wander();
   // Interior transfer is gated by its own whole-tick counter, not by delta.
   getApcInterior().tick();
 }

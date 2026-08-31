@@ -344,6 +344,16 @@ export function registerInteriorUnitProfile(
   return getApcInterior().register_interior_unit_profile(specialization);
 }
 
+export function spawnRandomInteriorUnit(
+  specialization: UnitSpecialization = UnitSpecialization.Generalist,
+): number {
+  return getApcInterior().spawn_random_interior_unit(specialization);
+}
+
+export function setInteriorUnitRngSeed(seed: number): void {
+  getApcInterior().set_interior_unit_rng_seed(seed >>> 0);
+}
+
 export function clearInteriorUnitProfiles(): void {
   getApcInterior().clear_interior_unit_profiles();
 }

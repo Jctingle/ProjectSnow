@@ -115,6 +115,7 @@ export function createDevPanel(
   onApcInteriorLabelsToggle?: (visible: boolean) => void,
   onApcHullToggle?: (visible: boolean) => void,
   onApcTracerToggle?: (enabled: boolean) => void,
+  onAddApcInteriorUnit?: () => void,
 ): void {
   onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -474,6 +475,20 @@ export function createDevPanel(
     onApcTracerToggle?.(apcTracerCheckbox.checked);
   });
   testingPanel.appendChild(apcTracerRow);
+
+  const addInteriorUnitRow = document.createElement('div');
+  addInteriorUnitRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const addInteriorUnitButton = document.createElement('button');
+  addInteriorUnitButton.type = 'button';
+  addInteriorUnitButton.textContent = 'Add APC unit';
+  addInteriorUnitButton.style.cssText =
+    'border:0; border-radius:4px; padding:4px 8px; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font:inherit;';
+  addInteriorUnitButton.addEventListener('click', () => {
+    onAddApcInteriorUnit?.();
+  });
+  addInteriorUnitRow.appendChild(addInteriorUnitButton);
+  testingPanel.appendChild(addInteriorUnitRow);
 
   const interiorLabelRow = document.createElement('div');
   interiorLabelRow.style.cssText =

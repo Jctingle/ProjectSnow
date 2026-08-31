@@ -518,3 +518,100 @@ fn resolve_target_packs_success_payload() {
     assert_eq!(target_local, 1);
     assert_eq!(code, InteriorMoveResult::Ok as u8);
 }
+
+#[test]
+fn random_spawn_places_units_on_unoccupied_floor_slots_only() {
+    let mut interior = interior();
+    interior.reset_hull_extent(2, 1, 2);
+    interior.set_interior_unit_rng_seed(12345);
+
+    let capacity = interior.interior_unit_capacity();
+    let mut spawned = 0;
+    for _ in 0..capacity {
+        let id = interior.spawn_random_interior_unit(UnitSpecialization::Generalist);
+        if id < 0 {
+            break;
+        }
+        spawned += 1;
+    }
+
+    assert_eq!(spawned, 16);
+
+    let cells = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_cells_ptr(),
+            interior.interior_unit_cells_len(),
+        )
+    };
+    let locals = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_subcells_ptr(),
+            interior.interior_unit_subcells_len(),
+        )
+    };
+
+    for i in 0..interior.interior_unit_count() {
+        let cell = cells[i] as usize;
+        let local = locals[i] as usize;
+        assert!(local < 4, "spawned local should stay on floor layer");
+        assert!(matches!(
+            interior.subgrid.occupant(cell, local),
+            Some((crate::subgrid::OCCUPANT_UNIT, _))
+        ));
+    }
+}
+
+#[test]
+fn random_spawn_returns_failure_when_no_floor_slots_remain() {
+    let mut interior = interior();
+    interior.reset_hull_extent(1, 1, 1);
+    interior.set_interior_unit_rng_seed(7);
+
+    assert!(interior.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+    assert!(interior.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+    assert!(interior.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+    assert!(interior.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+    assert_eq!(
+        interior.spawn_random_interior_unit(UnitSpecialization::Generalist),
+        -1
+    );
+}
+
+#[test]
+fn interior_wander_is_deterministic_for_same_seed_and_layout() {
+    let mut a = interior();
+    let mut b = interior();
+    a.set_hull_extent(2, 1, 2);
+    b.set_hull_extent(2, 1, 2);
+    a.set_interior_unit_rng_seed(20260831);
+    b.set_interior_unit_rng_seed(20260831);
+
+    for _ in 0..6 {
+        assert!(a.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+        assert!(b.spawn_random_interior_unit(UnitSpecialization::Generalist) >= 0);
+    }
+
+    for _ in 0..50 {
+        a.step_interior_unit_wander();
+        b.step_interior_unit_wander();
+    }
+
+    let cells_a = unsafe {
+        slice::from_raw_parts(a.interior_unit_cells_ptr(), a.interior_unit_cells_len())
+    };
+    let cells_b = unsafe {
+        slice::from_raw_parts(b.interior_unit_cells_ptr(), b.interior_unit_cells_len())
+    };
+    let locals_a = unsafe {
+        slice::from_raw_parts(a.interior_unit_subcells_ptr(), a.interior_unit_subcells_len())
+    };
+    let locals_b = unsafe {
+        slice::from_raw_parts(b.interior_unit_subcells_ptr(), b.interior_unit_subcells_len())
+    };
+
+    assert_eq!(a.interior_unit_count(), b.interior_unit_count());
+    for i in 0..a.interior_unit_count() {
+        assert_eq!(cells_a[i], cells_b[i]);
+        assert_eq!(locals_a[i], locals_b[i]);
+    }
+}

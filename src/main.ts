@@ -2,7 +2,14 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import './style.css';
-import { getApcInterior, getNeighborHeightmap, getNeighborSlopemap, getSim, getSlopemap } from './entityStore';
+import {
+  getApcInterior,
+  getNeighborHeightmap,
+  getNeighborSlopemap,
+  getSim,
+  getSlopemap,
+  UnitSpecialization,
+} from './entityStore';
 import { initCameraControls, isCameraFollowEnabled, resetCameraPan, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
 import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
@@ -33,6 +40,7 @@ import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import { setFocusModeChangedHandler, setFocusModeEnterHandler } from './input/keyboard';
+import { spawnRandomInteriorUnit } from './world/units';
 import {
   createTierOverlayMesh,
   disposeTierOverlayMesh,
@@ -320,6 +328,12 @@ createDevPanel(
   (enabled) => {
     setApcDemoLoopEnabled(enabled);
     apcInteriorView.rebuild();
+  },
+  () => {
+    const createdId = spawnRandomInteriorUnit(UnitSpecialization.Generalist);
+    if (createdId >= 0) {
+      apcInteriorView.rebuild();
+    }
   },
 );
 updateDeployedCount(sim.deployed_unit_count());
