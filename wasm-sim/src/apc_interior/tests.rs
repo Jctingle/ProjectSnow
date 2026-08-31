@@ -615,3 +615,154 @@ fn interior_wander_is_deterministic_for_same_seed_and_layout() {
         assert_eq!(locals_a[i], locals_b[i]);
     }
 }
+
+fn unit_mode(interior: &ApcInterior, unit_id: u32) -> Option<u8> {
+    let ids = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_ids_ptr(),
+            interior.interior_unit_ids_len(),
+        )
+    };
+    let modes = unsafe {
+        slice::from_raw_parts(
+            interior.interior_unit_modes_ptr(),
+            interior.interior_unit_modes_len(),
+        )
+    };
+    for i in 0..interior.interior_unit_count() {
+        if ids[i] == unit_id {
+            return Some(modes[i]);
+        }
+    }
+    None
+}
+
+#[test]
+fn lifecycle_happy_path_transitions_and_side_effects_hold() {
+    let mut interior = interior();
+    interior.reset_hull_extent(2, 1, 2);
+
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Pilot) as u32;
+    let board_cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, board_cell, 0));
+
+    assert_eq!(
+        interior.begin_interior_unit_exit(unit_id) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::Exiting as u8));
+
+    assert_eq!(
+        interior.mark_interior_unit_deployed(unit_id) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::Deployed as u8));
+    assert_eq!(unit_at(&interior, unit_id), None);
+
+    assert_eq!(
+        interior.begin_interior_unit_return(unit_id) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::Returning as u8));
+
+    assert_eq!(
+        interior.begin_interior_unit_boarding(unit_id) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::Boarding as u8));
+
+    let reboard_cell = interior.cell_index(1, 0, 1);
+    assert_eq!(
+        interior.complete_interior_unit_boarding(unit_id, reboard_cell, 3) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::BoardedIdle as u8));
+    assert_eq!(unit_at(&interior, unit_id), Some((reboard_cell, 3)));
+}
+
+#[test]
+fn begin_exit_requires_existing_placement() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+
+    assert_eq!(
+        interior.begin_interior_unit_exit(unit_id) as u8,
+        InteriorLifecycleResult::MissingPlacement as u8
+    );
+}
+
+#[test]
+fn invalid_lifecycle_order_is_rejected() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    assert_eq!(
+        interior.begin_interior_unit_return(unit_id) as u8,
+        InteriorLifecycleResult::InvalidTransition as u8
+    );
+    assert_eq!(
+        interior.mark_interior_unit_deployed(unit_id) as u8,
+        InteriorLifecycleResult::InvalidTransition as u8
+    );
+    assert_eq!(
+        interior.complete_interior_unit_boarding(unit_id, cell, 1) as u8,
+        InteriorLifecycleResult::InvalidTransition as u8
+    );
+}
+
+#[test]
+fn boarding_rejects_occupied_destination_and_keeps_mode() {
+    let mut interior = interior();
+    interior.reset_hull_extent(2, 1, 1);
+    let a = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    let b = interior.register_interior_unit_profile(UnitSpecialization::Medic) as u32;
+    let left = interior.cell_index(0, 0, 0);
+    let right = interior.cell_index(1, 0, 0);
+    assert!(interior.place_interior_unit(a, left, 0));
+    assert!(interior.place_interior_unit(b, right, 1));
+
+    assert_eq!(
+        interior.begin_interior_unit_exit(a) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(
+        interior.mark_interior_unit_deployed(a) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(
+        interior.begin_interior_unit_return(a) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(
+        interior.begin_interior_unit_boarding(a) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+
+    assert_eq!(
+        interior.complete_interior_unit_boarding(a, right, 1) as u8,
+        InteriorLifecycleResult::OccupiedBoardingDestination as u8
+    );
+    assert_eq!(unit_mode(&interior, a), Some(InteriorUnitMode::Boarding as u8));
+}
+
+#[test]
+fn machine_assignment_transitions_are_guarded() {
+    let mut interior = interior();
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Engineer) as u32;
+    let cell = interior.cell_index(0, 0, 0);
+    assert!(interior.place_interior_unit(unit_id, cell, 2));
+
+    assert_eq!(
+        interior.set_interior_unit_machine_assignment(unit_id, 77) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::AssignedMachine as u8));
+
+    assert_eq!(
+        interior.clear_interior_unit_machine_assignment(unit_id) as u8,
+        InteriorLifecycleResult::Ok as u8
+    );
+    assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::BoardedIdle as u8));
+}

@@ -70,6 +70,17 @@ pub enum InteriorMoveResult {
     BlockedMode = 8,
 }
 
+#[wasm_bindgen]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InteriorLifecycleResult {
+    Ok = 0,
+    NoSuchUnit = 1,
+    InvalidTransition = 2,
+    MissingPlacement = 3,
+    InvalidBoardingDestination = 4,
+    OccupiedBoardingDestination = 5,
+}
+
 struct InteriorUnitDomain {
     // Identity and schema versioning for migration-safe save blobs.
     schema_versions: Vec<u16>,
@@ -535,6 +546,120 @@ impl ApcInterior {
         true
     }
 
+    pub fn begin_interior_unit_exit(&mut self, unit_id: u32) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        let current = self.units.modes[slot];
+        if current != InteriorUnitMode::BoardedIdle as u8
+            && current != InteriorUnitMode::AssignedMachine as u8
+        {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        if !self.slot_has_valid_placement(slot) {
+            return InteriorLifecycleResult::MissingPlacement;
+        }
+        self.units.modes[slot] = InteriorUnitMode::Exiting as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn mark_interior_unit_deployed(&mut self, unit_id: u32) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::Exiting as u8 {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+
+        let _ = self.clear_interior_unit_placement(unit_id);
+        self.units.modes[slot] = InteriorUnitMode::Deployed as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn begin_interior_unit_return(&mut self, unit_id: u32) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::Deployed as u8 {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        self.units.modes[slot] = InteriorUnitMode::Returning as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn begin_interior_unit_boarding(&mut self, unit_id: u32) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::Returning as u8 {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        self.units.modes[slot] = InteriorUnitMode::Boarding as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn complete_interior_unit_boarding(
+        &mut self,
+        unit_id: u32,
+        cell: usize,
+        local: u8,
+    ) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::Boarding as u8 {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        if !Self::is_floor_local(local)
+            || cell >= self.lattice.cell_count()
+            || self.lattice.cell_kind(cell) != CELL_INTERIOR
+        {
+            return InteriorLifecycleResult::InvalidBoardingDestination;
+        }
+        if self.subgrid.occupant(cell, local as usize).is_some() {
+            return InteriorLifecycleResult::OccupiedBoardingDestination;
+        }
+        if !self.place_interior_unit(unit_id, cell, local) {
+            return InteriorLifecycleResult::OccupiedBoardingDestination;
+        }
+
+        self.units.modes[slot] = InteriorUnitMode::BoardedIdle as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn set_interior_unit_machine_assignment(
+        &mut self,
+        unit_id: u32,
+        machine_id: u32,
+    ) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::BoardedIdle as u8
+            && self.units.modes[slot] != InteriorUnitMode::AssignedMachine as u8
+        {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        self.units.assigned_machine_id[slot] = machine_id;
+        self.units.modes[slot] = InteriorUnitMode::AssignedMachine as u8;
+        InteriorLifecycleResult::Ok
+    }
+
+    pub fn clear_interior_unit_machine_assignment(
+        &mut self,
+        unit_id: u32,
+    ) -> InteriorLifecycleResult {
+        let Some(slot) = self.unit_slot_by_id(unit_id) else {
+            return InteriorLifecycleResult::NoSuchUnit;
+        };
+        if self.units.modes[slot] != InteriorUnitMode::AssignedMachine as u8 {
+            return InteriorLifecycleResult::InvalidTransition;
+        }
+        self.units.assigned_machine_id[slot] = EMPTY_MACHINE_ASSIGNMENT;
+        self.units.modes[slot] = InteriorUnitMode::BoardedIdle as u8;
+        InteriorLifecycleResult::Ok
+    }
+
     pub fn set_interior_unit_rng_seed(&mut self, seed: u32) {
         self.unit_rng_state = if seed == 0 { 1 } else { seed };
     }
@@ -949,6 +1074,23 @@ impl ApcInterior {
 
     fn can_move_interior(mode: u8) -> bool {
         mode == InteriorUnitMode::BoardedIdle as u8
+    }
+
+    fn slot_has_valid_placement(&self, slot: usize) -> bool {
+        let unit_id = self.units.unit_ids[slot];
+        let cell = self.units.cells[slot];
+        let local = self.units.subcells[slot];
+        if unit_id == EMPTY_UNIT_SLOT_ID || cell == EMPTY_UNIT_CELL || local == EMPTY_UNIT_SUBCELL {
+            return false;
+        }
+        if !Self::is_floor_local(local) {
+            return false;
+        }
+        let cell = cell as usize;
+        matches!(
+            self.subgrid.occupant(cell, local as usize),
+            Some((OCCUPANT_UNIT, id)) if id == unit_id
+        )
     }
 
     fn try_move_slot(

@@ -2,6 +2,7 @@ import init, {
   ApcInterior,
   InteriorMoveAction,
   InteriorMoveResult,
+  InteriorLifecycleResult,
   InteriorUnitMode,
   Sim,
   UnitSpecialization,
@@ -40,6 +41,7 @@ export const SEEK_RANDOM = 1;
 
 export { UnitSpecialization };
 export { InteriorMoveAction, InteriorMoveResult };
+export { InteriorLifecycleResult };
 export { InteriorUnitMode };
 
 let sim: Sim | null = null;
@@ -368,6 +370,43 @@ export function clearInteriorUnitPlacement(unitId: number): boolean {
 
 export function setInteriorUnitMode(unitId: number, mode: InteriorUnitMode): boolean {
   return getApcInterior().set_interior_unit_mode(unitId, mode);
+}
+
+export function beginInteriorUnitExit(unitId: number): InteriorLifecycleResult {
+  return getApcInterior().begin_interior_unit_exit(unitId);
+}
+
+export function markInteriorUnitDeployed(unitId: number): InteriorLifecycleResult {
+  return getApcInterior().mark_interior_unit_deployed(unitId);
+}
+
+export function beginInteriorUnitReturn(unitId: number): InteriorLifecycleResult {
+  return getApcInterior().begin_interior_unit_return(unitId);
+}
+
+export function beginInteriorUnitBoarding(unitId: number): InteriorLifecycleResult {
+  return getApcInterior().begin_interior_unit_boarding(unitId);
+}
+
+export function completeInteriorUnitBoarding(
+  unitId: number,
+  cell: number,
+  local: number,
+): InteriorLifecycleResult {
+  return getApcInterior().complete_interior_unit_boarding(unitId, cell, local);
+}
+
+export function setInteriorUnitMachineAssignment(
+  unitId: number,
+  machineId: number,
+): InteriorLifecycleResult {
+  return getApcInterior().set_interior_unit_machine_assignment(unitId, machineId);
+}
+
+export function clearInteriorUnitMachineAssignment(
+  unitId: number,
+): InteriorLifecycleResult {
+  return getApcInterior().clear_interior_unit_machine_assignment(unitId);
 }
 
 export function tryMoveInteriorUnit(
