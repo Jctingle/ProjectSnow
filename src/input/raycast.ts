@@ -10,8 +10,9 @@ function logRaycast(stage: string, payloadFactory: () => Record<string, unknown>
   console.debug('[diag:right-click:raycast]', stage, payloadFactory());
 }
 
-export function getGroundClickPoint(
-  event: MouseEvent,
+export function getGroundPointFromScreen(
+  clientX: number,
+  clientY: number,
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
 ): THREE.Vector3 | null {
@@ -19,15 +20,15 @@ export function getGroundClickPoint(
   const rect = canvas.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) {
     logRaycast('reject:zero-canvas-rect', () => ({
-      clickScreen: { x: event.clientX, y: event.clientY },
+      clickScreen: { x: clientX, y: clientY },
       rect: { width: rect.width, height: rect.height },
       worldPoint: null,
     }));
     return null;
   }
 
-  ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
   raycaster.setFromCamera(ndc, camera);
 
@@ -35,7 +36,7 @@ export function getGroundClickPoint(
   const dir = raycaster.ray.direction;
   if (Math.abs(dir.y) < 1e-8) {
     logRaycast('reject:parallel-ray', () => ({
-      clickScreen: { x: event.clientX, y: event.clientY },
+      clickScreen: { x: clientX, y: clientY },
       ndc: { x: ndc.x, y: ndc.y },
       rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
       rayDir: { x: dir.x, y: dir.y, z: dir.z },
@@ -81,7 +82,7 @@ export function getGroundClickPoint(
 
   if (a === null || b === null) {
     logRaycast('reject:no-sign-change-in-height-bracket', () => ({
-      clickScreen: { x: event.clientX, y: event.clientY },
+      clickScreen: { x: clientX, y: clientY },
       ndc: { x: ndc.x, y: ndc.y },
       rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
       rayDir: { x: dir.x, y: dir.y, z: dir.z },
@@ -110,7 +111,7 @@ export function getGroundClickPoint(
   const z = origin.z + dir.z * tFinal;
   const point = new THREE.Vector3(x, heightAt(tFinal), z);
   logRaycast('accept:intersection', () => ({
-    clickScreen: { x: event.clientX, y: event.clientY },
+    clickScreen: { x: clientX, y: clientY },
     ndc: { x: ndc.x, y: ndc.y },
     rayOrigin: { x: origin.x, y: origin.y, z: origin.z },
     rayDir: { x: dir.x, y: dir.y, z: dir.z },
@@ -118,4 +119,12 @@ export function getGroundClickPoint(
     worldPoint: { x: point.x, y: point.y, z: point.z },
   }));
   return point;
+}
+
+export function getGroundClickPoint(
+  event: MouseEvent,
+  camera: THREE.Camera,
+  renderer: THREE.WebGLRenderer,
+): THREE.Vector3 | null {
+  return getGroundPointFromScreen(event.clientX, event.clientY, camera, renderer);
 }

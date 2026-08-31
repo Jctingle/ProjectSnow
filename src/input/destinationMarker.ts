@@ -20,8 +20,13 @@ export type DestinationMarkerController = {
   updateDynamicLine(): void;
 };
 
-export function createDestinationMarkerController(
+type MarkerOptions = {
+  color: number;
+};
+
+function createMarkerController(
   scene: THREE.Scene,
+  options: MarkerOptions,
 ): DestinationMarkerController {
   let debugMarkerState: DebugMarkerState = {
     pins: [],
@@ -91,14 +96,14 @@ export function createDestinationMarkerController(
     const heightAt = (x: number, z: number): number =>
       sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE;
     const lineMat = (): THREE.LineBasicMaterial =>
-      new THREE.LineBasicMaterial({ color: 0xff0000 });
+      new THREE.LineBasicMaterial({ color: options.color });
 
     for (const waypoint of debugMarkerState.queue) {
       const y = pinY(waypoint.x, waypoint.z);
 
       const pin = new THREE.Mesh(
         new THREE.SphereGeometry(0.08),
-        new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+        new THREE.MeshBasicMaterial({ color: options.color }),
       );
       pin.position.set(waypoint.x, y, waypoint.z);
       scene.add(pin);
@@ -186,4 +191,16 @@ export function createDestinationMarkerController(
     shiftBy,
     updateDynamicLine,
   };
+}
+
+export function createDestinationMarkerController(
+  scene: THREE.Scene,
+): DestinationMarkerController {
+  return createMarkerController(scene, { color: 0xff0000 });
+}
+
+export function createSortieMarkerController(
+  scene: THREE.Scene,
+): DestinationMarkerController {
+  return createMarkerController(scene, { color: 0x1ecf5b });
 }

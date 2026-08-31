@@ -4,6 +4,7 @@ import { getFocusModeKind, isCubeFocusMode, popFocusModeLevel, type FocusModeKin
 
 let onFocusModeChanged: ((mode: FocusModeKind) => void) | null = null;
 let onFocusModeEnter: (() => void) | null = null;
+let onSortieCommand: (() => void) | null = null;
 
 export function setFocusModeChangedHandler(handler: ((mode: FocusModeKind) => void) | null): void {
   onFocusModeChanged = handler;
@@ -11,6 +12,10 @@ export function setFocusModeChangedHandler(handler: ((mode: FocusModeKind) => vo
 
 export function setFocusModeEnterHandler(handler: (() => void) | null): void {
   onFocusModeEnter = handler;
+}
+
+export function setSortieCommandHandler(handler: (() => void) | null): void {
+  onSortieCommand = handler;
 }
 
 export function attachKeyboardShortcuts(): void {
@@ -21,6 +26,13 @@ export function attachKeyboardShortcuts(): void {
     }
 
     if (event.repeat) return;
+
+    if (event.key.toLowerCase() === 'd' && getFocusModeKind() === 'normal') {
+      event.preventDefault();
+      event.stopPropagation();
+      onSortieCommand?.();
+      return;
+    }
 
     if (event.key.toLowerCase() === 'f' && getFocusModeKind() === 'normal') {
       event.preventDefault();

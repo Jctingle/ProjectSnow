@@ -7,8 +7,9 @@ import {
   updateApcWaypointQueue,
 } from './apcMoveCommand';
 import { attachClickSelect } from './clickSelect';
-import { createDestinationMarkerController } from './destinationMarker';
-import { attachKeyboardShortcuts } from './keyboard';
+import { createDestinationMarkerController, createSortieMarkerController } from './destinationMarker';
+import { attachKeyboardShortcuts, setSortieCommandHandler } from './keyboard';
+import { createUnitSortieController } from './unitSortieCommand';
 
 export type InputRouterController = {
   update(): void;
@@ -21,19 +22,24 @@ export function initInputRouter(
   scene: THREE.Scene,
 ): InputRouterController {
   const destinationMarker = createDestinationMarkerController(scene);
+  const sortieMarker = createSortieMarkerController(scene);
+  const sortieController = createUnitSortieController(camera, renderer, sortieMarker);
 
   attachClickSelect(camera, renderer);
   attachApcMoveCommand(camera, renderer, destinationMarker);
+  setSortieCommandHandler(() => sortieController.triggerAtCursor());
   attachKeyboardShortcuts();
 
   return {
     update: () => {
       updateApcWaypointQueue(destinationMarker);
       destinationMarker.updateDynamicLine();
+      sortieController.update(performance.now());
     },
     shiftDestinationMarker: (dx: number, dz: number) => {
       shiftApcWaypointQueue(dx, dz);
       destinationMarker.shiftBy(dx, dz, getApcWaypointQueue(), getSim().apc_y());
+      sortieController.shiftBy(dx, dz);
     },
   };
 }
