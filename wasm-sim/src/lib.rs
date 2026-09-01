@@ -8,37 +8,30 @@ mod rng;
 mod shard_ring;
 mod subgrid;
 mod terrain;
-mod units;
 
 #[cfg(test)]
 mod shard_ring_tests;
 
 use apc::Apc;
-use rng::Rng;
 use shard_ring::{crossing_direction, trigger_direction, Shard, NEIGHBOR_OFFSETS};
-use units::Units;
 
 #[wasm_bindgen]
 pub struct Sim {
     current: Shard,
     neighbors: [Option<Shard>; 8],
     world_seed: u32,
-    units: Units,
     apc: Apc,
-    rng: Rng,
 }
 
 #[wasm_bindgen]
 impl Sim {
     #[wasm_bindgen(constructor)]
     pub fn new(
-        max_units: usize,
         noise_seed: u32,
         seed_x: f64,
         seed_y: f64,
         scale: f64,
         height_mult: f32,
-        unit_wander_radius: f32,
         terrain_half_extent: f32,
         crag_strength: f32,
         crag_freq: f64,
@@ -46,7 +39,6 @@ impl Sim {
         sweep_amp: f32,
         tier_height_scale: f32,
         apc_speed: f32,
-        rng_seed: u32,
     ) -> Sim {
         let mut terrain = terrain::Terrain::new(
             noise_seed,
@@ -73,9 +65,7 @@ impl Sim {
             current,
             neighbors: std::array::from_fn(|_| None),
             world_seed: noise_seed,
-            units: Units::new(max_units, unit_wander_radius),
             apc: Apc::new(apc_speed),
-            rng: Rng::new(rng_seed),
         }
     }
 
@@ -145,26 +135,8 @@ impl Sim {
         self.apc.set_speed(v);
     }
 
-    pub fn spawn_unit(&mut self, x: f32, z: f32) -> i32 {
-        self.units.spawn_unit(x, z, &self.current.terrain)
-    }
-
-    pub fn set_unit_recall(&mut self, active: bool) {
-        self.units.set_recall(active);
-    }
-
-    pub fn deployed_unit_count(&self) -> usize {
-        self.units.deployed_count()
-    }
-
-    pub fn deploy_all_units(&mut self) {
-        self.units.deploy_all();
-    }
-
     pub fn tick(&mut self, delta: f32) {
         self.apc.tick(delta, &self.current.terrain);
-        self.units
-            .tick(delta, self.apc.position_xz(), &self.current.terrain, &mut self.rng);
 
         let (ax, az) = self.apc.position_xz();
         let he = self.current.terrain.half_extent();
@@ -185,27 +157,16 @@ impl Sim {
             }
         }
 
-        if self.units.deployed_count() == 0 {
-            if let Some((dr, dc)) = crossing_direction(ax, az, he) {
-                let step = he * 2.0;
-                let dx = -(dc as f32) * step;
-                let dz = -(dr as f32) * step;
-                self.apc.rebase(dx, dz);
-                self.units.rebase(dx, dz);
+        if let Some((dr, dc)) = crossing_direction(ax, az, he) {
+            let step = he * 2.0;
+            let dx = -(dc as f32) * step;
+            let dz = -(dr as f32) * step;
+            self.apc.rebase(dx, dz);
 
-                let target = self.take_or_generate_neighbor(dr, dc);
-                let old_current = std::mem::replace(&mut self.current, target);
-                self.rekey_neighbors(old_current);
-            }
+            let target = self.take_or_generate_neighbor(dr, dc);
+            let old_current = std::mem::replace(&mut self.current, target);
+            self.rekey_neighbors(old_current);
         }
-    }
-
-    pub fn positions_ptr(&self) -> *const f32 {
-        self.units.positions_ptr()
-    }
-
-    pub fn states_ptr(&self) -> *const u8 {
-        self.units.states_ptr()
     }
 
     pub fn heightmap_ptr(&self) -> *const f32 {
@@ -214,14 +175,6 @@ impl Sim {
 
     pub fn slopemap_ptr(&self) -> *const f32 {
         self.current.terrain.slopemap_ptr()
-    }
-
-    pub fn count(&self) -> usize {
-        self.units.count()
-    }
-
-    pub fn max_units(&self) -> usize {
-        self.units.max_units()
     }
 
     pub fn height_mult(&self) -> f32 {

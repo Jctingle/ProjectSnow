@@ -126,6 +126,7 @@ impl Terrain {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn height_at_clamped(&self, x: f32, z: f32) -> f32 {
         if self.hm_width < 2 || self.hm_height < 2 {
             return self.sample_height(x as f64, z as f64);

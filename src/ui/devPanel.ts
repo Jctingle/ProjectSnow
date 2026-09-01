@@ -77,33 +77,10 @@ const TILT_SHIFT_DEFAULTS: TiltShiftSettings = {
   blurStrength: TILT_SHIFT_BLUR_STRENGTH,
 };
 
-let recallCheckboxRef: HTMLInputElement | null = null;
-let onRecallToggleRef: ((recallActive: boolean) => void) | null = null;
-let deployedCountSpanRef: HTMLSpanElement | null = null;
-let recallActiveState = false;
-
-function setRecallActive(recallActive: boolean): void {
-  recallActiveState = recallActive;
-  if (recallCheckboxRef) {
-    recallCheckboxRef.checked = recallActive;
-  }
-  onRecallToggleRef?.(recallActive);
-}
-
-export function toggleRecallUnits(): void {
-  setRecallActive(!recallActiveState);
-}
-
-export function updateDeployedCount(n: number): void {
-  if (!deployedCountSpanRef) return;
-  deployedCountSpanRef.textContent = String(n);
-}
-
 export function createDevPanel(
   sim: Sim,
   onChange: () => void,
   onSlopeDebugToggle?: (checked: boolean) => void,
-  onRecallToggle?: (recallActive: boolean) => void,
   onCameraFollowToggle?: (followActive: boolean) => void,
   onCenterOnApc?: () => void,
   onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void,
@@ -117,7 +94,6 @@ export function createDevPanel(
   onApcTracerToggle?: (enabled: boolean) => void,
   onAddApcInteriorUnit?: () => void,
 ): void {
-  onRecallToggleRef = onRecallToggle ?? null;
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
   const slopeSettings = {
     passableMaxDeg: SLOPE_PASSABLE_MAX_DEG,
@@ -162,14 +138,6 @@ export function createDevPanel(
   slopeRow.appendChild(slopeCheckbox);
   slopeRow.appendChild(slopeLabel);
 
-  const recallCheckbox = document.createElement('input');
-  recallCheckbox.type = 'checkbox';
-  recallCheckbox.checked = recallActiveState;
-  const recallLabel = document.createElement('label');
-  recallLabel.textContent = 'Recall units';
-  slopeRow.appendChild(recallCheckbox);
-  slopeRow.appendChild(recallLabel);
-
   const cameraFollowCheckbox = document.createElement('input');
   cameraFollowCheckbox.type = 'checkbox';
   cameraFollowCheckbox.checked = true;
@@ -189,8 +157,6 @@ export function createDevPanel(
   slopeRow.appendChild(centerOnApcButton);
 
   panel.appendChild(slopeRow);
-
-  recallCheckboxRef = recallCheckbox;
 
   const tiltShiftEnabledRow = document.createElement('div');
   tiltShiftEnabledRow.style.cssText =
@@ -258,24 +224,8 @@ export function createDevPanel(
   panel.appendChild(tabContent);
   showTab(activeTab);
 
-  const deployedRow = document.createElement('div');
-  deployedRow.style.cssText =
-    'display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const deployedLabel = document.createElement('span');
-  deployedLabel.textContent = 'Deployed units';
-  const deployedValue = document.createElement('span');
-  deployedValue.textContent = '0';
-  deployedRow.appendChild(deployedLabel);
-  deployedRow.appendChild(deployedValue);
-  panel.appendChild(deployedRow);
-  deployedCountSpanRef = deployedValue;
-
   slopeCheckbox.addEventListener('change', () => {
     onSlopeDebugToggle?.(slopeCheckbox.checked);
-  });
-
-  recallCheckbox.addEventListener('change', () => {
-    setRecallActive(recallCheckbox.checked);
   });
 
   cameraFollowCheckbox.addEventListener('change', () => {

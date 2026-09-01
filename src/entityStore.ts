@@ -24,20 +24,10 @@ import {
   SCALE,
   SEED_X,
   SEED_Y,
-  UNIT_WANDER_RADIUS,
   SWEEP_AMP,
   SWEEP_SCALE,
   TIER_HEIGHT_SCALE,
 } from './sim/config';
-
-export const MAX_UNITS = 5000;
-
-// Fields the sim doesn't touch stay as plain JS TypedArrays.
-export const hp = new Uint16Array(MAX_UNITS);
-export const programId = new Uint16Array(MAX_UNITS);
-
-export const SEEK_APC = 0;
-export const SEEK_RANDOM = 1;
 
 export { UnitSpecialization };
 export { InteriorMoveAction, InteriorMoveResult };
@@ -48,21 +38,15 @@ let sim: Sim | null = null;
 let apcInterior: ApcInterior | null = null;
 let memory: WebAssembly.Memory;
 
-// Cached zero-copy views over WASM memory.
-let positionsView: Float32Array | null = null;
-let statesView: Uint8Array | null = null;
-
 export async function initStore(): Promise<void> {
   const wasm = await init();
   memory = wasm.memory;
   sim = new Sim(
-    MAX_UNITS,
     NOISE_SEED,
     SEED_X,
     SEED_Y,
     SCALE,
     HEIGHT_MULT,
-    UNIT_WANDER_RADIUS,
     GROUND_SIZE / 2,
     CRAG_STRENGTH,
     CRAG_FREQ,
@@ -70,7 +54,6 @@ export async function initStore(): Promise<void> {
     SWEEP_AMP,
     TIER_HEIGHT_SCALE,
     APC_SPEED_DEFAULT,
-    (Math.random() * 0xffffffff) >>> 0 // rng seed
   );
   apcInterior = new ApcInterior(
     APC_ENVELOPE_X,
@@ -91,28 +74,6 @@ export function getSim(): Sim {
 export function getApcInterior(): ApcInterior {
   if (!apcInterior) throw new Error('initStore() has not resolved yet');
   return apcInterior;
-}
-
-/**
- * Zero-copy view over unit positions (xyz interleaved).
- * Recreated automatically if WASM memory grew (which detaches old views).
- */
-export function getPositions(): Float32Array {
-  if (!positionsView || positionsView.buffer !== memory.buffer) {
-    positionsView = new Float32Array(
-      memory.buffer,
-      getSim().positions_ptr(),
-      MAX_UNITS * 3
-    );
-  }
-  return positionsView;
-}
-
-export function getStates(): Uint8Array {
-  if (!statesView || statesView.buffer !== memory.buffer) {
-    statesView = new Uint8Array(memory.buffer, getSim().states_ptr(), MAX_UNITS);
-  }
-  return statesView;
 }
 
 /**
@@ -155,10 +116,6 @@ export function getNeighborSlopemap(
   const ptr = getSim().neighbor_slopemap_ptr(dr, dc);
   if (ptr === 0) return null;
   return new Float32Array(memory.buffer, ptr, width * height);
-}
-
-export function activeCount(): number {
-  return sim ? sim.count() : 0;
 }
 
 type U8Cache = { view: Uint8Array; ptr: number; length: number } | null;
@@ -644,12 +601,4 @@ export function getInteriorUnitInventoryLoad(): Uint16Array {
     length,
   );
   return interiorUnitInventoryLoadCache!.view;
-}
-
-export function spawnUnit(x: number, z: number): number {
-  const id = getSim().spawn_unit(x, z);
-  if (id >= 0) {
-    hp[id] = 100;
-  }
-  return id;
 }

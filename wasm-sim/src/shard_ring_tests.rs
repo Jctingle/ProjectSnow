@@ -8,9 +8,9 @@ const TEST_HEIGHTMAP_W: usize = 145;
 const TEST_HEIGHTMAP_H: usize = 145;
 const TEST_HEIGHTMAP_LEN: usize = TEST_HEIGHTMAP_W * TEST_HEIGHTMAP_H;
 
-fn build_sim(max_units: usize) -> Sim {
+fn build_sim() -> Sim {
     let mut sim = Sim::new(
-        max_units, 4242, 17.0, 29.0, 0.028, 5.2, 72.0, 72.0, 1.2, 2.1, 0.011, 0.2, 0.95, 0.15, 2026,
+        4242, 17.0, 29.0, 0.028, 5.2, 72.0, 1.2, 2.1, 0.011, 0.2, 0.95, 0.15,
     );
     sim.generate_heightmap(TEST_HEIGHTMAP_W, TEST_HEIGHTMAP_H, 144.0, 144.0);
     sim.generate_slopemap();
@@ -25,12 +25,6 @@ fn tick_until<F: Fn(&Sim) -> bool>(sim: &mut Sim, max_ticks: usize, pred: F) -> 
         }
     }
     false
-}
-
-fn first_unit_xz(sim: &Sim) -> (f32, f32) {
-    let len = sim.count() * 3;
-    let data = unsafe { std::slice::from_raw_parts(sim.positions_ptr(), len) };
-    (data[0], data[2])
 }
 
 fn all_neighbors_ready(sim: &Sim) -> bool {
@@ -91,40 +85,8 @@ fn collect_live_heightmap_ptrs(sim: &Sim) -> BTreeSet<usize> {
 }
 
 #[test]
-fn crossing_is_gated_by_boarded_units() {
-    let mut sim = build_sim(8);
-    assert_eq!(sim.spawn_unit(0.3, 0.0), 0);
-    assert_eq!(sim.spawn_unit(-0.2, 0.2), 1);
-
-    sim.set_apc_target(999.0, 0.0);
-    for _ in 0..2_000 {
-        sim.tick(1.0 / 60.0);
-        assert!(
-            sim.current_shard_col() == 0,
-            "crossing should remain gated while units are deployed"
-        );
-    }
-
-    assert!(
-        sim.neighbor_ready(0, 1),
-        "east neighbor should still backfill while units are deployed"
-    );
-
-    sim.set_unit_recall(true);
-    let boarded = tick_until(&mut sim, 10_000, |s| s.deployed_unit_count() == 0);
-    assert!(boarded, "units never fully boarded under recall");
-
-    let crossed = tick_until(&mut sim, 500, |s| s.current_shard_col() == 1);
-    assert!(crossed, "crossing never proceeded after all units were boarded");
-}
-
-#[test]
-fn crossing_rebases_apc_and_units_into_new_shard_frame() {
-    let mut sim = build_sim(8);
-    assert_eq!(sim.spawn_unit(0.3, 0.0), 0);
-    sim.set_unit_recall(true);
-    let boarded = tick_until(&mut sim, 10_000, |s| s.deployed_unit_count() == 0);
-    assert!(boarded, "unit never boarded before crossing test");
+fn crossing_rebases_apc_into_new_shard_frame() {
+    let mut sim = build_sim();
 
     sim.set_apc_target(999.0, 0.0);
     let filled = tick_until(&mut sim, 2_000, |s| s.neighbor_ready(0, 1));
@@ -132,7 +94,6 @@ fn crossing_rebases_apc_and_units_into_new_shard_frame() {
 
     let he = sim.current.terrain.half_extent();
     let step = he * 2.0;
-    let (unit_x_before, _) = first_unit_xz(&sim);
     let target_world_x = he + 30.0;
     let target_world_z = 10.0;
     sim.set_apc_target(target_world_x, target_world_z);
@@ -163,17 +124,11 @@ fn crossing_rebases_apc_and_units_into_new_shard_frame() {
         sim.apc_z(),
     );
 
-    let (unit_x_after, _) = first_unit_xz(&sim);
-    assert!(
-        ((unit_x_before - step) - unit_x_after).abs() <= 1e-4,
-        "unit rebase mismatch: before={unit_x_before:.6} after={unit_x_after:.6} step={step:.6}"
-    );
 }
 
 #[test]
 fn post_crossing_height_is_finite_and_shard_coords_match() {
-    let mut sim = build_sim(8);
-    sim.set_unit_recall(true);
+    let mut sim = build_sim();
     sim.set_apc_target(999.0, 0.0);
 
     let filled = tick_until(&mut sim, 2_000, |s| s.neighbor_ready(0, 1));
@@ -217,7 +172,7 @@ fn post_crossing_height_is_finite_and_shard_coords_match() {
 
 #[test]
 fn ring_fills_while_idle() {
-    let mut sim = build_sim(0);
+    let mut sim = build_sim();
 
     for _ in 0..600 {
         sim.tick(1.0 / 60.0);
@@ -228,7 +183,7 @@ fn ring_fills_while_idle() {
 
 #[test]
 fn ring_rekey_determinism() {
-    let mut sim = build_sim(0);
+    let mut sim = build_sim();
     let filled = tick_until(&mut sim, 2_000, all_neighbors_ready);
     assert!(filled, "ring-1 never fully backfilled before determinism check");
 
@@ -266,7 +221,7 @@ fn ring_rekey_determinism() {
 
 #[test]
 fn crossing_never_oscillates() {
-    let mut sim = build_sim(8);
+    let mut sim = build_sim();
     let he = sim.current.terrain.half_extent();
     sim.set_apc_target(he + 30.0, 10.0);
 
@@ -299,7 +254,7 @@ fn ring_backfill_seed_set_is_order_independent_across_entry_sequences() {
 
     let mut sets = Vec::new();
     for sequence in sequences {
-        let mut sim = build_sim(0);
+        let mut sim = build_sim();
         for (dr, dc) in sequence {
             sim.backfill_neighbor(dr, dc);
         }
@@ -321,7 +276,7 @@ fn ring_backfill_seed_set_is_order_independent_across_entry_sequences() {
 
 #[test]
 fn repeated_boundary_crossings_keep_ring_and_memory_footprint_stable() {
-    let mut sim = build_sim(0);
+    let mut sim = build_sim();
     let he = sim.current.terrain.half_extent();
     let margin_target = he + 18.0;
 
@@ -391,7 +346,7 @@ fn repeated_boundary_crossings_keep_ring_and_memory_footprint_stable() {
 
 #[test]
 fn repeated_crossings_recover_to_full_ring_after_settle() {
-    let mut sim = build_sim(0);
+    let mut sim = build_sim();
     let he = sim.current.terrain.half_extent();
     let margin_target = he + 18.0;
     let expected_full = 1 + NEIGHBOR_OFFSETS.len();
@@ -462,7 +417,7 @@ fn repeated_crossings_recover_to_full_ring_after_settle() {
 
 #[test]
 fn corner_probe_uses_distinct_shard_instances_in_ring() {
-    let mut sim = build_sim(0);
+    let mut sim = build_sim();
     let filled = tick_until(&mut sim, 2_000, all_neighbors_ready);
     assert!(filled, "ring-1 did not fully populate before corner probe");
 

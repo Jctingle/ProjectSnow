@@ -8,6 +8,7 @@ import {
   getNeighborSlopemap,
   getSim,
   getSlopemap,
+  spawnRandomInteriorUnit,
   UnitSpecialization,
 } from './entityStore';
 import { initCameraControls, isCameraFollowEnabled, resetCameraPan, setCameraFollowEnabled, updateCameraFollow, updateFocusCamera } from './input/camera';
@@ -30,17 +31,15 @@ import {
   resetFocusLevel,
 } from './focusMode';
 import { createBlizzardMask } from './render/blizzardMask';
-import { instancedUnits, syncInstancedMesh } from './render/instancedUnits';
 import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
-import { createDevPanel, updateDeployedCount } from './ui/devPanel';
+import { createDevPanel } from './ui/devPanel';
 import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setApcHullCutaway, setApcHullVisible, syncApcMesh } from './world/apc';
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
 import { setFocusModeChangedHandler, setFocusModeEnterHandler } from './input/keyboard';
-import { spawnRandomInteriorUnit } from './world/units';
 import {
   createTierOverlayMesh,
   disposeTierOverlayMesh,
@@ -174,9 +173,6 @@ apcMesh.add(apcInteriorView.group);
 const blizzardMask = createBlizzardMask();
 scene.add(blizzardMask.mesh);
 
-// units
-scene.add(instancedUnits);
-
 const regenButton = document.createElement('button');
 regenButton.textContent = 'Regenerate Terrain';
 regenButton.style.cssText =
@@ -273,14 +269,6 @@ createDevPanel(
       setTierOverlayVisible(tierOverlays.get(mesh), checked);
     }
   },
-  (recallActive) => {
-    if (recallActive) {
-      sim.set_unit_recall(true);
-    } else {
-      sim.set_unit_recall(false);
-      sim.deploy_all_units();
-    }
-  },
   (followActive) => {
     setCameraFollowEnabled(followActive);
   },
@@ -336,13 +324,11 @@ createDevPanel(
     }
   },
 );
-updateDeployedCount(sim.deployed_unit_count());
 
 // sim loop
 const SIM_RATE = 1 / 60;
 let lastTime   = performance.now();
 let accumulator = 0;
-let nextDeployedCountUpdateAtMs = 0;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -482,12 +468,6 @@ function animate() {
   }
   inputRouter.update();
 
-  if (now >= nextDeployedCountUpdateAtMs) {
-    updateDeployedCount(sim.deployed_unit_count());
-    nextDeployedCountUpdateAtMs = now + 250;
-  }
-
-  syncInstancedMesh();
   composer.render();
 }
 animate();

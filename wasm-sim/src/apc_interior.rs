@@ -22,6 +22,7 @@ const EMPTY_UNIT_CELL: u32 = u32::MAX;
 const EMPTY_UNIT_SUBCELL: u8 = u8::MAX;
 const UNIT_SCHEMA_VERSION_V1: u16 = 1;
 const EQUIPMENT_SLOT_COUNT: usize = 4;
+const INTERIOR_WANDER_DECISION_INTERVAL_TICKS: u32 = 50;
 
 #[wasm_bindgen]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -230,6 +231,7 @@ pub struct ApcInterior {
     subgrid: Subgrid,
     units: InteriorUnitDomain,
     unit_rng_state: u32,
+    wander_decision_tick: u32,
     hull_w: usize,
     hull_h: usize,
     hull_d: usize,
@@ -259,6 +261,7 @@ impl ApcInterior {
             subgrid,
             units,
             unit_rng_state: 0x9E37_79B9,
+            wander_decision_tick: 0,
             hull_w: 0,
             hull_h: 0,
             hull_d: 0,
@@ -707,6 +710,11 @@ impl ApcInterior {
     }
 
     pub fn step_interior_unit_wander(&mut self) {
+        self.wander_decision_tick = self.wander_decision_tick.wrapping_add(1);
+        if self.wander_decision_tick % INTERIOR_WANDER_DECISION_INTERVAL_TICKS != 0 {
+            return;
+        }
+
         for slot in 0..self.units.count() {
             let source_cell = self.units.cells[slot];
             let source_local = self.units.subcells[slot];

@@ -128,14 +128,6 @@ export function setSlopeThresholds(
 // validity itself uses classifySlopeTier and the live thresholds above.
 export const GRADIENT_B_RED_START_DEG = SLOPE_CLIFF_THRESHOLD_DEG;
 
-// Number of units spawned during initial setup.
-// Higher values increase scene/simulation load; lower values lighten CPU/GPU cost.
-export const UNIT_COUNT = 25;
-
-// Initial spacing between spawned units around the spawn point.
-// Higher values spread units farther apart; lower values cluster them tightly.
-export const UNIT_SPACING = 0.35;
-
 // Edge length of one interior lattice cell, in world units.
 export const APC_GRID_CELL_SIZE = 0.3;
 

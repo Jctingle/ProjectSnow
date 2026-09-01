@@ -1,5 +1,4 @@
 import { clearSelection } from './selection';
-import { toggleRecallUnits } from '../ui/devPanel';
 import { getFocusModeKind, isCubeFocusMode, popFocusModeLevel, type FocusModeKind } from '../focusMode';
 
 let onFocusModeChanged: ((mode: FocusModeKind) => void) | null = null;
@@ -20,11 +19,6 @@ export function setSortieCommandHandler(handler: (() => void) | null): void {
 
 export function attachKeyboardShortcuts(): void {
   window.addEventListener('keydown', (event: KeyboardEvent) => {
-    if (!event.repeat && event.key.toLowerCase() === 'r') {
-      toggleRecallUnits();
-      return;
-    }
-
     if (event.repeat) return;
 
     if (event.key.toLowerCase() === 'd' && getFocusModeKind() === 'normal') {

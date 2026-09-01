@@ -20,6 +20,7 @@ import {
 import { isFocusMode } from '../focusMode';
 import { getGroundPointFromScreen } from './raycast';
 import type { DestinationMarkerController } from './destinationMarker';
+import { createUnitPegGeometry, createUnitPegMaterial, UNIT_PEG_Y_OFFSET } from '../render/unitPeg';
 
 type SortiePhase = 'outbound' | 'returning' | 'boarding';
 
@@ -28,7 +29,12 @@ type ActiveSortie = {
   targetX: number;
   targetZ: number;
   phase: SortiePhase;
+  phaseStartMs: number;
   phaseDeadlineMs: number;
+  outboundStartX: number;
+  outboundStartZ: number;
+  returnStartX: number;
+  returnStartZ: number;
   preferredBoardCell: number;
   preferredBoardLocal: number;
 };
@@ -44,6 +50,7 @@ const OCCUPANT_NONE = 0;
 const OUTBOUND_MIN_MS = 900;
 const RETURN_MIN_MS = 800;
 const WORLD_TRAVEL_SPEED = 3.5;
+const LERP_EPSILON = 1e-6;
 
 function randomIndex(maxExclusive: number): number {
   return Math.floor(Math.random() * maxExclusive);
@@ -58,6 +65,7 @@ function travelDurationMs(fromX: number, fromZ: number, toX: number, toZ: number
 export function createUnitSortieController(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
   marker: DestinationMarkerController,
 ): UnitSortieController {
   const canvas = renderer.domElement;
@@ -65,6 +73,38 @@ export function createUnitSortieController(
   let lastPointerX: number | null = null;
   let lastPointerY: number | null = null;
   let activeSortie: ActiveSortie | null = null;
+  let sortieMesh: THREE.Mesh | null = null;
+
+  const sortieGeometry = createUnitPegGeometry();
+  const sortieMaterial = createUnitPegMaterial();
+
+  const ensureSortieMesh = (): THREE.Mesh => {
+    if (sortieMesh) return sortieMesh;
+    sortieMesh = new THREE.Mesh(sortieGeometry, sortieMaterial);
+    sortieMesh.visible = false;
+    scene.add(sortieMesh);
+    return sortieMesh;
+  };
+
+  const setSortieMeshAt = (x: number, z: number): void => {
+    const sim = getSim();
+    const y = sim.height_at_or_sample(x, z) * sim.height_mult() + UNIT_PEG_Y_OFFSET;
+    const mesh = ensureSortieMesh();
+    mesh.position.set(x, y, z);
+    mesh.visible = true;
+  };
+
+  const hideSortieMesh = (): void => {
+    if (sortieMesh) sortieMesh.visible = false;
+  };
+
+  const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+  const phaseProgress = (nowMs: number, startMs: number, endMs: number): number => {
+    const span = endMs - startMs;
+    if (span <= LERP_EPSILON) return 1;
+    return Math.min(Math.max((nowMs - startMs) / span, 0), 1);
+  };
 
   canvas.addEventListener('mousemove', (event: MouseEvent) => {
     lastPointerX = event.clientX;
@@ -74,6 +114,7 @@ export function createUnitSortieController(
   const clearSortie = (): void => {
     activeSortie = null;
     marker.clear();
+    hideSortieMesh();
   };
 
   const chooseCandidateUnit = (): {
@@ -147,8 +188,11 @@ export function createUnitSortieController(
     }
 
     const sim = getSim();
+    activeSortie.returnStartX = activeSortie.targetX;
+    activeSortie.returnStartZ = activeSortie.targetZ;
     const returnMs = travelDurationMs(activeSortie.targetX, activeSortie.targetZ, sim.apc_x(), sim.apc_z(), RETURN_MIN_MS);
     activeSortie.phase = 'returning';
+    activeSortie.phaseStartMs = nowMs;
     activeSortie.phaseDeadlineMs = nowMs + returnMs;
 
     marker.rebuild([{ x: activeSortie.targetX, z: activeSortie.targetZ }], sim.apc_y());
@@ -202,11 +246,17 @@ export function createUnitSortieController(
       targetX: worldPoint.x,
       targetZ: worldPoint.z,
       phase: 'outbound',
+      phaseStartMs: now,
       phaseDeadlineMs: now + outboundMs,
+      outboundStartX: sim.apc_x(),
+      outboundStartZ: sim.apc_z(),
+      returnStartX: worldPoint.x,
+      returnStartZ: worldPoint.z,
       preferredBoardCell: candidate.cell,
       preferredBoardLocal: candidate.local,
     };
 
+    setSortieMeshAt(sim.apc_x(), sim.apc_z());
     marker.rebuild([{ x: worldPoint.x, z: worldPoint.z }], sim.apc_y());
   };
 
@@ -215,15 +265,26 @@ export function createUnitSortieController(
 
     const sim = getSim();
     if (activeSortie.phase === 'outbound') {
+      const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
+      setSortieMeshAt(
+        lerp(activeSortie.outboundStartX, activeSortie.targetX, t),
+        lerp(activeSortie.outboundStartZ, activeSortie.targetZ, t),
+      );
       if (nowMs < activeSortie.phaseDeadlineMs) {
         marker.updateDynamicLine();
         return;
       }
+      setSortieMeshAt(activeSortie.targetX, activeSortie.targetZ);
       transitionToReturning(nowMs);
       return;
     }
 
     if (activeSortie.phase === 'returning') {
+      const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
+      setSortieMeshAt(
+        lerp(activeSortie.returnStartX, sim.apc_x(), t),
+        lerp(activeSortie.returnStartZ, sim.apc_z(), t),
+      );
       if (nowMs < activeSortie.phaseDeadlineMs) {
         marker.updateDynamicLine();
         return;
@@ -244,6 +305,7 @@ export function createUnitSortieController(
 
     marker.clear();
     activeSortie = null;
+    hideSortieMesh();
     marker.rebuild([], sim.apc_y());
   };
 

@@ -23,7 +23,7 @@ export function initInputRouter(
 ): InputRouterController {
   const destinationMarker = createDestinationMarkerController(scene);
   const sortieMarker = createSortieMarkerController(scene);
-  const sortieController = createUnitSortieController(camera, renderer, sortieMarker);
+  const sortieController = createUnitSortieController(camera, renderer, scene, sortieMarker);
 
   attachClickSelect(camera, renderer);
   attachApcMoveCommand(camera, renderer, destinationMarker);

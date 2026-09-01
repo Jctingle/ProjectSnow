@@ -1,6 +1,13 @@
 import * as THREE from 'three';
-import { getApcInterior, getApcMachineCells, getApcMachineHolding } from '../entityStore';
+import {
+  getApcInterior,
+  getApcMachineCells,
+  getApcMachineHolding,
+  getInteriorUnitCells,
+  getInteriorUnitSubcells,
+} from '../entityStore';
 import { APC_GRID_CELL_SIZE } from '../sim/config';
+import { createUnitPegGeometry, createUnitPegMaterial, UNIT_PEG_Y_OFFSET } from '../render/unitPeg';
 
 const MACHINE_COLOR = 0x8899aa;
 const PRODUCT_COLOR = 0xffdd33;
@@ -16,6 +23,9 @@ const SUBCELL_SIZE_RATIO = 0.48;
 const SUBCELL_FILL_OPACITY = 0.16;
 const SUBCELL_HOVER_COLOR = 0x33fff1;
 const SUBCELL_SELECT_COLOR = 0xff7e29;
+const EMPTY_CELL = 0xffffffff;
+const EMPTY_SUBCELL = 0xff;
+const UNIT_FLOOR_ANCHOR_Y = -APC_GRID_CELL_SIZE * 0.5 + UNIT_PEG_Y_OFFSET;
 
 export type ApcInteriorView = {
   group: THREE.Group;
@@ -41,12 +51,16 @@ type Hull = { w: number; h: number; d: number };
 type LevelView = {
   machines: THREE.InstancedMesh;
   products: THREE.InstancedMesh;
+  units: THREE.InstancedMesh;
   machineMaterial: THREE.MeshStandardMaterial;
   productMaterial: THREE.MeshStandardMaterial;
+  unitMaterial: THREE.MeshStandardMaterial;
   positions: Float32Array;
   cells: Uint32Array;
   slots: Int32Array;
   count: number;
+  unitCount: number;
+  unitCapacity: number;
 };
 
 function readHull(): Hull {
@@ -127,6 +141,7 @@ export function createApcInteriorView(): ApcInteriorView {
     size * MACHINE_FILL_RATIO,
   );
   const productGeometry = new THREE.SphereGeometry(size * PRODUCT_FILL_RATIO * 0.5, 10, 8);
+  const unitGeometry = createUnitPegGeometry();
 
   let levels: LevelView[] = [];
   let labelMesh: THREE.Mesh | null = null;
@@ -139,6 +154,7 @@ export function createApcInteriorView(): ApcInteriorView {
   const scratchPosition = new THREE.Vector3();
   const identityQuaternion = new THREE.Quaternion();
   const scratchScale = new THREE.Vector3();
+  const scratchOffset = new THREE.Vector3();
   const scratchBox = new THREE.Box3();
   const scratchHit = new THREE.Vector3();
 
@@ -370,8 +386,10 @@ export function createApcInteriorView(): ApcInteriorView {
     for (const lv of levels) {
       group.remove(lv.machines);
       group.remove(lv.products);
+      group.remove(lv.units);
       lv.machineMaterial.dispose();
       lv.productMaterial.dispose();
+      lv.unitMaterial.dispose();
     }
     levels = [];
   }
@@ -404,29 +422,43 @@ export function createApcInteriorView(): ApcInteriorView {
       opacity: 1,
       depthTest: false,
     });
+    const unitMaterial = createUnitPegMaterial();
+    unitMaterial.depthTest = false;
+    unitMaterial.transparent = true;
+    unitMaterial.opacity = 0.95;
+    const unitCapacity = Math.max(1, capacity * 4);
 
     const machines = new THREE.InstancedMesh(machineGeometry, machineMaterial, capacity);
     const products = new THREE.InstancedMesh(productGeometry, productMaterial, capacity);
+    const units = new THREE.InstancedMesh(unitGeometry, unitMaterial, unitCapacity);
     machines.count = 0;
     products.count = 0;
+    units.count = 0;
     // Bottom-to-top ordering so transparent lower floors composite correctly.
     machines.renderOrder = 2 + y * 2;
     products.renderOrder = 3 + y * 2;
+    units.renderOrder = 4 + y * 2;
     machines.frustumCulled = false;
     products.frustumCulled = false;
+    units.frustumCulled = false;
 
     group.add(machines);
     group.add(products);
+    group.add(units);
 
     return {
       machines,
       products,
+      units,
       machineMaterial,
       productMaterial,
+      unitMaterial,
       positions: new Float32Array(capacity * 3),
       cells: new Uint32Array(capacity),
       slots: new Int32Array(capacity).fill(-1),
       count: 0,
+      unitCount: 0,
+      unitCapacity,
     };
   }
 
@@ -438,10 +470,13 @@ export function createApcInteriorView(): ApcInteriorView {
 
       lv.machines.visible = !hidden;
       lv.products.visible = !hidden;
+      lv.units.visible = !hidden;
       lv.machineMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 0.9;
       lv.productMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 1;
+      lv.unitMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 0.95;
       lv.machineMaterial.depthWrite = !dimmed;
       lv.productMaterial.depthWrite = !dimmed;
+      lv.unitMaterial.depthWrite = !dimmed;
     }
   }
 
@@ -528,9 +563,18 @@ export function createApcInteriorView(): ApcInteriorView {
   /// floor renders correctly on the first frame it is revealed despite being skipped.
   function sync(): void {
     const holding = getApcMachineHolding();
+    const interior = getApcInterior();
+    const unitCells = getInteriorUnitCells();
+    const unitSubcells = getInteriorUnitSubcells();
+    const unitTotal = interior.interior_unit_count();
+    const envelopeW = interior.envelope_w();
+    const envelopeD = interior.envelope_d();
+    const levelStride = envelopeW * envelopeD;
 
     for (let y = 0; y < levels.length; y += 1) {
       const lv = levels[y];
+      lv.unitCount = 0;
+      lv.units.count = 0;
       if (!lv.products.visible) continue;
 
       for (let local = 0; local < lv.count; local += 1) {
@@ -547,6 +591,39 @@ export function createApcInteriorView(): ApcInteriorView {
         lv.products.setMatrixAt(local, scratchMatrix);
       }
       lv.products.instanceMatrix.needsUpdate = true;
+    }
+
+    for (let slot = 0; slot < unitTotal; slot += 1) {
+      const cell = unitCells[slot];
+      const local = unitSubcells[slot];
+      if (cell === EMPTY_CELL || local === EMPTY_SUBCELL || local > 3) continue;
+
+      const y = Math.floor(cell / levelStride);
+      const target = levels[displayLevel(y)];
+      if (!target) continue;
+      if (target.unitCount >= target.unitCapacity) continue;
+
+      const remainder = cell % levelStride;
+      const x = remainder % envelopeW;
+      const z = Math.floor(remainder / envelopeW);
+      const visibleByCube = cubeFocusCell === null || y !== level || cell === cubeFocusCell;
+
+      cellCentre(x, y, z, hull, scratchPosition);
+      subcellOffset(local, scratchOffset);
+      // Floor-walkers share one physical floor plane, so bind peg bottoms to
+      // the cell floor and only use subcell offsets along X/Z.
+      scratchPosition.x += scratchOffset.x;
+      scratchPosition.z += scratchOffset.z;
+      scratchPosition.y += UNIT_FLOOR_ANCHOR_Y;
+      const s = visibleByCube ? 1 : 0;
+      scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(s, s, s));
+      target.units.setMatrixAt(target.unitCount, scratchMatrix);
+      target.unitCount += 1;
+    }
+
+    for (const lv of levels) {
+      lv.units.count = lv.unitCount;
+      lv.units.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -645,6 +722,7 @@ export function createApcInteriorView(): ApcInteriorView {
       clearLabels();
       machineGeometry.dispose();
       productGeometry.dispose();
+      unitGeometry.dispose();
       highlightGeometry.dispose();
       subcellGeometry.dispose();
       (hoverMesh.material as THREE.Material).dispose();
