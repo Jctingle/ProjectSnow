@@ -28,6 +28,7 @@ import {
 } from '../sim/config';
 import type { BlizzardMaskSettings } from '../render/blizzardMask';
 import type { TiltShiftSettings } from '../render/tiltShiftPass';
+import { registerWindowToggle } from './windowToggleBar';
 
 interface FieldConfig {
   label: string;
@@ -103,20 +104,14 @@ export function createDevPanel(
   const panel = document.createElement('div');
   panel.style.cssText =
     'position:fixed; top:124px; right:12px; z-index:10; display:flex; flex-direction:column; gap:6px; font-family:monospace; font-size:12px;';
-
-  const masterRow = document.createElement('div');
-  masterRow.style.cssText =
-    'position:fixed; top:90px; right:12px; z-index:10; display:flex; align-items:center; gap:8px; background:rgba(120,30,30,0.8); padding:6px 8px; border-radius:4px; color:#fff; font-family:monospace; font-size:12px;';
-  const masterCheckbox = document.createElement('input');
-  masterCheckbox.type = 'checkbox';
-  const masterLabel = document.createElement('label');
-  masterLabel.textContent = 'Hide debug UI';
-  masterRow.appendChild(masterCheckbox);
-  masterRow.appendChild(masterLabel);
-  masterCheckbox.addEventListener('change', () => {
-    panel.style.display = masterCheckbox.checked ? 'none' : 'flex';
+  registerWindowToggle({
+    id: 'debug-panel',
+    label: 'Debug',
+    defaultVisible: true,
+    onVisibleChange: (visible) => {
+      panel.style.display = visible ? 'flex' : 'none';
+    },
   });
-  document.body.appendChild(masterRow);
 
   let rebuildScheduled = false;
   function scheduleRebuild(): void {

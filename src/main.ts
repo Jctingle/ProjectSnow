@@ -35,6 +35,7 @@ import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
 import { initSim, tick, regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel } from './ui/devPanel';
+import { createUnitRosterPanel } from './ui/unitRosterPanel';
 import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setApcHullCutaway, setApcHullVisible, syncApcMesh } from './world/apc';
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
@@ -170,6 +171,7 @@ seedApcDemoLoop();
 
 const apcInteriorView = createApcInteriorView();
 apcMesh.add(apcInteriorView.group);
+const unitRosterPanel = createUnitRosterPanel();
 const blizzardMask = createBlizzardMask();
 scene.add(blizzardMask.mesh);
 
@@ -444,6 +446,7 @@ function animate() {
   apcInteriorView.setCubeFocus(selectedCube());
   setApcGridFocus(apcMesh, getFocusLevel(), isFocusMode());
   apcInteriorView.sync();
+  unitRosterPanel.sync();
   blizzardMask.update(sim.apc_x(), sim.apc_y(), sim.apc_z());
   if (isFocusMode()) {
     const hullH = apcInterior.hull_h();
