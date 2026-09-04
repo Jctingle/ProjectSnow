@@ -14,6 +14,8 @@ import { createUnitSortieController } from './unitSortieCommand';
 export type InputRouterController = {
   update(): void;
   shiftDestinationMarker(dx: number, dz: number): void;
+  getWorldUnitPosition(unitId: number, out: THREE.Vector3): boolean;
+  setSelectedUnit(unitId: number | null): void;
 };
 
 export function initInputRouter(
@@ -40,6 +42,11 @@ export function initInputRouter(
       shiftApcWaypointQueue(dx, dz);
       destinationMarker.shiftBy(dx, dz, getApcWaypointQueue(), getSim().apc_y());
       sortieController.shiftBy(dx, dz);
+    },
+    getWorldUnitPosition: (unitId: number, out: THREE.Vector3) =>
+      sortieController.getWorldPosition(unitId, out),
+    setSelectedUnit: (unitId: number | null) => {
+      sortieController.setSelectedUnit(unitId);
     },
   };
 }

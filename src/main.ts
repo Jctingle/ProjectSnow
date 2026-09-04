@@ -17,6 +17,7 @@ import { attachFocusOrbitControls } from './input/focusOrbit';
 import { attachFocusFloorControls } from './input/focusFloor';
 import { attachInteriorPicking } from './input/interiorPick';
 import {
+  exitCubeFocus,
   getFocusModeKind,
   isFocusMode,
   selectedCube,
@@ -30,6 +31,7 @@ import {
   getFocusLevel,
   resetFocusLevel,
 } from './focusMode';
+import { clearSelection, getSelectedUnitId, subscribeSelectionChanged, toggleUnitSelection } from './input/selection';
 import { createBlizzardMask } from './render/blizzardMask';
 import { createTiltShiftEffect } from './render/tiltShiftEffect';
 import { APC_GRID_CELL_SIZE, GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from './sim/config';
@@ -40,7 +42,7 @@ import { createApcMesh, resizeApcMesh, setApcGridFocus, setApcGridVisible, setAp
 import { seedApcDemoLoop, setApcDemoLoopEnabled } from './world/apcDemoLoop';
 import { createApcInteriorView } from './world/apcInterior';
 import { createTerrainMesh, createTerrainMeshFromGrid } from './world/terrain';
-import { setFocusModeChangedHandler, setFocusModeEnterHandler } from './input/keyboard';
+import { setFocusModeChangedHandler, setFocusModeEnterHandler, setResetViewHandler } from './input/keyboard';
 import {
   createTierOverlayMesh,
   disposeTierOverlayMesh,
@@ -171,9 +173,22 @@ seedApcDemoLoop();
 
 const apcInteriorView = createApcInteriorView();
 apcMesh.add(apcInteriorView.group);
-const unitRosterPanel = createUnitRosterPanel();
+const unitRosterPanel = createUnitRosterPanel(
+  (unitId) => {
+    toggleUnitSelection(unitId);
+  },
+  (visible) => {
+    apcInteriorView.setExteriorUnitsVisible(visible);
+  },
+);
 const blizzardMask = createBlizzardMask();
 scene.add(blizzardMask.mesh);
+
+const subfocusExitButton = document.createElement('button');
+subfocusExitButton.textContent = 'Exit Cell';
+subfocusExitButton.style.cssText =
+  'position:fixed; z-index:16; padding:6px 10px; border:1px solid rgba(255,255,255,0.24); border-radius:999px; background:rgba(10,18,28,0.58); color:#f4f7ff; font-family:monospace; font-size:12px; cursor:pointer; backdrop-filter:blur(3px); transform:translate(-50%, -100%); display:none;';
+document.body.appendChild(subfocusExitButton);
 
 const regenButton = document.createElement('button');
 regenButton.textContent = 'Regenerate Terrain';
@@ -199,6 +214,12 @@ focusButton.textContent = 'Focus APC Interior';
 focusButton.style.cssText =
   'position:fixed; top:12px; right:180px; z-index:10; padding:8px 12px; font-family:sans-serif; font-size:13px; cursor:pointer;';
 document.body.appendChild(focusButton);
+
+subfocusExitButton.addEventListener('click', () => {
+  if (selectedCube() === null) return;
+  exitCubeFocus();
+  applyFocusUiState(getFocusModeKind());
+});
 
 function applyFocusUiState(mode: FocusModeKind): void {
   if (mode === 'normal') {
@@ -226,9 +247,26 @@ function applyFocusUiState(mode: FocusModeKind): void {
   focusButton.textContent = 'Exit Focus Mode';
 }
 
+function resetToDefaultView(): void {
+  clearSelection();
+  if (isFocusMode()) {
+    exitFocusMode();
+    applyFocusUiState('normal');
+  }
+  resetCameraPan();
+  updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
+}
+
+subscribeSelectionChanged(() => {
+  const selectedUnitId = getSelectedUnitId();
+  apcInteriorView.setSelectedUnit(selectedUnitId);
+  inputRouter.setSelectedUnit(selectedUnitId);
+});
+
 setFocusModeChangedHandler((mode) => {
   applyFocusUiState(mode);
 });
+setResetViewHandler(resetToDefaultView);
 
 function enterApcFocusMode(): void {
   if (isFocusMode()) return;
@@ -257,6 +295,40 @@ attachInteriorPicking(renderer.domElement, camera, apcInteriorView);
 
 const focusTarget = new THREE.Vector3();
 const focusOrientation = new THREE.Quaternion();
+const subfocusButtonWorld = new THREE.Vector3();
+
+function updateSubfocusExitButton(): void {
+  const cubeCell = selectedCube();
+  if (!isFocusMode() || cubeCell === null) {
+    subfocusExitButton.style.display = 'none';
+    return;
+  }
+
+  const envelopeW = apcInterior.envelope_w();
+  const envelopeD = apcInterior.envelope_d();
+  const levelStride = envelopeW * envelopeD;
+  const y = Math.floor(cubeCell / levelStride);
+  const remainder = cubeCell % levelStride;
+  const x = remainder % envelopeW;
+  const z = Math.floor(remainder / envelopeW);
+
+  subfocusButtonWorld.set(
+    -apcInterior.hull_w() * APC_GRID_CELL_SIZE * 0.5 + (x + 0.5) * APC_GRID_CELL_SIZE,
+    -apcInterior.hull_h() * APC_GRID_CELL_SIZE * 0.5 + (y + 1.45) * APC_GRID_CELL_SIZE,
+    -apcInterior.hull_d() * APC_GRID_CELL_SIZE * 0.5 + (z + 0.5) * APC_GRID_CELL_SIZE,
+  );
+  apcMesh.localToWorld(subfocusButtonWorld);
+  subfocusButtonWorld.project(camera);
+
+  if (subfocusButtonWorld.z < -1 || subfocusButtonWorld.z > 1) {
+    subfocusExitButton.style.display = 'none';
+    return;
+  }
+
+  subfocusExitButton.style.display = 'block';
+  subfocusExitButton.style.left = `${(subfocusButtonWorld.x * 0.5 + 0.5) * window.innerWidth}px`;
+  subfocusExitButton.style.top = `${(-subfocusButtonWorld.y * 0.5 + 0.5) * window.innerHeight}px`;
+}
 
 createDevPanel(
   sim,
@@ -469,6 +541,7 @@ function animate() {
   } else if (isCameraFollowEnabled()) {
     updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
   }
+  updateSubfocusExitButton();
   inputRouter.update();
 
   composer.render();

@@ -4,6 +4,7 @@ import {
   getApcMachineCells,
   getApcMachineHolding,
   getInteriorUnitCells,
+  getInteriorUnitIds,
   getInteriorUnitSubcells,
 } from '../entityStore';
 import { APC_GRID_CELL_SIZE } from '../sim/config';
@@ -23,6 +24,7 @@ const SUBCELL_SIZE_RATIO = 0.48;
 const SUBCELL_FILL_OPACITY = 0.16;
 const SUBCELL_HOVER_COLOR = 0x33fff1;
 const SUBCELL_SELECT_COLOR = 0xff7e29;
+const UNIT_SELECTION_OUTLINE_COLOR = 0xe0b84f;
 const EMPTY_CELL = 0xffffffff;
 const EMPTY_SUBCELL = 0xff;
 const UNIT_FLOOR_ANCHOR_Y = -APC_GRID_CELL_SIZE * 0.5 + UNIT_PEG_Y_OFFSET;
@@ -31,6 +33,7 @@ export type ApcInteriorView = {
   group: THREE.Group;
   rebuild(): void;
   sync(): void;
+  setExteriorUnitsVisible(visible: boolean): void;
   setFocusLevel(level: number): void;
   setSubfocusEnabled(enabled: boolean): void;
   setCubeFocus(cell: number | null): void;
@@ -42,6 +45,7 @@ export type ApcInteriorView = {
   setSelectedSubcell(local: number): void;
   selectedCell(): number;
   selectedSubcell(): number;
+  setSelectedUnit(unitId: number | null): void;
   setLabelsVisible(visible: boolean): void;
   dispose(): void;
 };
@@ -147,6 +151,7 @@ export function createApcInteriorView(): ApcInteriorView {
   let labelMesh: THREE.Mesh | null = null;
   let labelsVisible = false;
   let subfocusEnabled = false;
+  let exteriorUnitsVisible = true;
   let level = 0;
   let hull: Hull = readHull();
 
@@ -164,6 +169,7 @@ export function createApcInteriorView(): ApcInteriorView {
 
   let hoveredCell = -1;
   let selectedCell = -1;
+  let selectedUnitId: number | null = null;
   let cubeFocusCell: number | null = null;
   let hoveredSubcell = -1;
   let selectedSubcell = -1;
@@ -193,6 +199,21 @@ export function createApcInteriorView(): ApcInteriorView {
   };
   const hoverMesh = makeHighlight(HOVER_COLOR, 0.45);
   const selectMesh = makeHighlight(SELECT_COLOR, 0.6);
+  const selectedUnitOutline = new THREE.Mesh(
+    unitGeometry,
+    new THREE.MeshBasicMaterial({
+      color: UNIT_SELECTION_OUTLINE_COLOR,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.98,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  selectedUnitOutline.scale.setScalar(1.3);
+  selectedUnitOutline.visible = false;
+  selectedUnitOutline.renderOrder = 905;
+  group.add(selectedUnitOutline);
 
   const subcellGeometry = new THREE.BoxGeometry(
     size * SUBCELL_SIZE_RATIO,
@@ -467,10 +488,11 @@ export function createApcInteriorView(): ApcInteriorView {
       const lv = levels[y];
       const hidden = subfocusEnabled && y > level;
       const dimmed = subfocusEnabled && y < level;
+      const unitsVisible = !hidden && (subfocusEnabled || exteriorUnitsVisible);
 
       lv.machines.visible = !hidden;
       lv.products.visible = !hidden;
-      lv.units.visible = !hidden;
+      lv.units.visible = unitsVisible;
       lv.machineMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 0.9;
       lv.productMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 1;
       lv.unitMaterial.opacity = dimmed ? BELOW_LEVEL_OPACITY : 0.95;
@@ -564,12 +586,14 @@ export function createApcInteriorView(): ApcInteriorView {
   function sync(): void {
     const holding = getApcMachineHolding();
     const interior = getApcInterior();
+    const unitIds = getInteriorUnitIds();
     const unitCells = getInteriorUnitCells();
     const unitSubcells = getInteriorUnitSubcells();
     const unitTotal = interior.interior_unit_count();
     const envelopeW = interior.envelope_w();
     const envelopeD = interior.envelope_d();
     const levelStride = envelopeW * envelopeD;
+    let selectedUnitVisible = false;
 
     for (let y = 0; y < levels.length; y += 1) {
       const lv = levels[y];
@@ -618,6 +642,14 @@ export function createApcInteriorView(): ApcInteriorView {
       const s = visibleByCube ? 1 : 0;
       scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(s, s, s));
       target.units.setMatrixAt(target.unitCount, scratchMatrix);
+      if (
+        unitIds[slot] === selectedUnitId &&
+        target.units.visible &&
+        visibleByCube
+      ) {
+        selectedUnitOutline.position.copy(scratchPosition);
+        selectedUnitVisible = true;
+      }
       target.unitCount += 1;
     }
 
@@ -625,6 +657,8 @@ export function createApcInteriorView(): ApcInteriorView {
       lv.units.count = lv.unitCount;
       lv.units.instanceMatrix.needsUpdate = true;
     }
+
+    selectedUnitOutline.visible = selectedUnitVisible;
   }
 
   rebuild();
@@ -633,6 +667,11 @@ export function createApcInteriorView(): ApcInteriorView {
     group,
     rebuild,
     sync,
+    setExteriorUnitsVisible(visible: boolean) {
+      if (visible === exteriorUnitsVisible) return;
+      exteriorUnitsVisible = visible;
+      applyVisibility();
+    },
     setFocusLevel(next: number) {
       const clamped = Math.min(Math.max(0, Math.round(next)), Math.max(0, hull.h - 1));
       if (clamped === level) return;
@@ -713,6 +752,12 @@ export function createApcInteriorView(): ApcInteriorView {
     },
     selectedCell: () => selectedCell,
     selectedSubcell: () => selectedSubcell,
+    setSelectedUnit(unitId: number | null) {
+      selectedUnitId = unitId;
+      if (unitId === null) {
+        selectedUnitOutline.visible = false;
+      }
+    },
     setLabelsVisible(visible: boolean) {
       labelsVisible = visible;
       if (labelMesh) labelMesh.visible = labelsVisible || subfocusEnabled;
@@ -732,6 +777,7 @@ export function createApcInteriorView(): ApcInteriorView {
       }
       (subcellHoverMesh.material as THREE.Material).dispose();
       (subcellSelectMesh.material as THREE.Material).dispose();
+      (selectedUnitOutline.material as THREE.Material).dispose();
     },
   };
 }

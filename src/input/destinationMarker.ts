@@ -9,7 +9,7 @@ type DebugMarkerState = {
   pins: THREE.Mesh[];
   stems: THREE.Line[];
   staticLines: THREE.Line[];
-  dynamicLine: THREE.Line | null;
+  dynamicLines: THREE.Line[];
   queue: { x: number; z: number }[];
 };
 
@@ -22,6 +22,8 @@ export type DestinationMarkerController = {
 
 type MarkerOptions = {
   color: number;
+  connectSequentialTargets?: boolean;
+  dynamicFromOriginToEach?: boolean;
 };
 
 function createMarkerController(
@@ -32,7 +34,7 @@ function createMarkerController(
     pins: [],
     stems: [],
     staticLines: [],
-    dynamicLine: null,
+    dynamicLines: [],
     queue: [],
   };
 
@@ -57,8 +59,8 @@ function createMarkerController(
     for (const pin of debugMarkerState.pins) disposeObject(pin);
     for (const stem of debugMarkerState.stems) disposeLine(stem);
     for (const line of debugMarkerState.staticLines) disposeLine(line);
-    if (debugMarkerState.dynamicLine) disposeLine(debugMarkerState.dynamicLine);
-    debugMarkerState = { pins: [], stems: [], staticLines: [], dynamicLine: null, queue: [] };
+    for (const line of debugMarkerState.dynamicLines) disposeLine(line);
+    debugMarkerState = { pins: [], stems: [], staticLines: [], dynamicLines: [], queue: [] };
   };
 
   // Samples SAMPLES_PER_SEGMENT intermediate terrain heights along XZ to
@@ -122,22 +124,37 @@ function createMarkerController(
       debugMarkerState.stems.push(stem);
     }
 
-    for (let i = 1; i < debugMarkerState.queue.length; i++) {
-      const from = debugMarkerState.queue[i - 1];
-      const to = debugMarkerState.queue[i];
-      const line = new THREE.Line(
-        terrainLineGeometry(
-          from.x, pinY(from.x, from.z), from.z,
-          to.x, pinY(to.x, to.z), to.z,
-          heightAt,
-        ),
-        lineMat(),
-      );
-      scene.add(line);
-      debugMarkerState.staticLines.push(line);
+    if (options.connectSequentialTargets ?? true) {
+      for (let i = 1; i < debugMarkerState.queue.length; i++) {
+        const from = debugMarkerState.queue[i - 1];
+        const to = debugMarkerState.queue[i];
+        const line = new THREE.Line(
+          terrainLineGeometry(
+            from.x, pinY(from.x, from.z), from.z,
+            to.x, pinY(to.x, to.z), to.z,
+            heightAt,
+          ),
+          lineMat(),
+        );
+        scene.add(line);
+        debugMarkerState.staticLines.push(line);
+      }
     }
 
-    if (debugMarkerState.queue.length > 0) {
+    if (options.dynamicFromOriginToEach) {
+      for (const waypoint of debugMarkerState.queue) {
+        const dynamicLine = new THREE.Line(
+          terrainLineGeometry(
+            sim.apc_x(), apcWorldY, sim.apc_z(),
+            waypoint.x, pinY(waypoint.x, waypoint.z), waypoint.z,
+            heightAt,
+          ),
+          lineMat(),
+        );
+        scene.add(dynamicLine);
+        debugMarkerState.dynamicLines.push(dynamicLine);
+      }
+    } else if (debugMarkerState.queue.length > 0) {
       const first = debugMarkerState.queue[0];
       const dynamicLine = new THREE.Line(
         terrainLineGeometry(
@@ -148,7 +165,7 @@ function createMarkerController(
         lineMat(),
       );
       scene.add(dynamicLine);
-      debugMarkerState.dynamicLine = dynamicLine;
+      debugMarkerState.dynamicLines.push(dynamicLine);
     }
   };
 
@@ -162,27 +179,33 @@ function createMarkerController(
   };
 
   const updateDynamicLine = (): void => {
-    const line = debugMarkerState.dynamicLine;
-    const first = debugMarkerState.queue[0];
-    if (!line || !first) return;
-
     const sim = getSim();
-    const x0 = sim.apc_x(), z0 = sim.apc_z(), y0 = sim.apc_y();
-    const x1 = first.x, z1 = first.z;
-    const y1 = sim.height_at_or_sample(x1, z1) * sim.height_mult() + LINE_Y_NUDGE;
     const total = SAMPLES_PER_SEGMENT + 2;
 
-    const position = line.geometry.getAttribute('position') as THREE.BufferAttribute;
-    position.setXYZ(0, x0, y0, z0);
-    for (let i = 1; i <= SAMPLES_PER_SEGMENT; i++) {
-      const t = i / (SAMPLES_PER_SEGMENT + 1);
-      const x = x0 + t * (x1 - x0);
-      const z = z0 + t * (z1 - z0);
-      position.setXYZ(i, x, sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE, z);
+    for (let index = 0; index < debugMarkerState.dynamicLines.length; index += 1) {
+      const line = debugMarkerState.dynamicLines[index];
+      const target = debugMarkerState.queue[index];
+      if (!line || !target) continue;
+
+      const x0 = sim.apc_x();
+      const z0 = sim.apc_z();
+      const y0 = sim.apc_y();
+      const x1 = target.x;
+      const z1 = target.z;
+      const y1 = sim.height_at_or_sample(x1, z1) * sim.height_mult() + LINE_Y_NUDGE;
+
+      const position = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      position.setXYZ(0, x0, y0, z0);
+      for (let i = 1; i <= SAMPLES_PER_SEGMENT; i++) {
+        const t = i / (SAMPLES_PER_SEGMENT + 1);
+        const x = x0 + t * (x1 - x0);
+        const z = z0 + t * (z1 - z0);
+        position.setXYZ(i, x, sim.height_at_or_sample(x, z) * sim.height_mult() + LINE_Y_NUDGE, z);
+      }
+      position.setXYZ(total - 1, x1, y1, z1);
+      position.needsUpdate = true;
+      line.geometry.computeBoundingSphere();
     }
-    position.setXYZ(total - 1, x1, y1, z1);
-    position.needsUpdate = true;
-    line.geometry.computeBoundingSphere();
   };
 
   return {
@@ -196,11 +219,15 @@ function createMarkerController(
 export function createDestinationMarkerController(
   scene: THREE.Scene,
 ): DestinationMarkerController {
-  return createMarkerController(scene, { color: 0xff0000 });
+  return createMarkerController(scene, { color: 0xff0000, connectSequentialTargets: true });
 }
 
 export function createSortieMarkerController(
   scene: THREE.Scene,
 ): DestinationMarkerController {
-  return createMarkerController(scene, { color: 0x1ecf5b });
+  return createMarkerController(scene, {
+    color: 0x1ecf5b,
+    connectSequentialTargets: false,
+    dynamicFromOriginToEach: true,
+  });
 }

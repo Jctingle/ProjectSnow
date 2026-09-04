@@ -28,6 +28,18 @@ export function updateCameraFollow(
   camera.updateMatrixWorld();
 }
 
+export function centerCameraOnWorldPoint(
+  camera: THREE.OrthographicCamera,
+  anchorX: number,
+  anchorY: number,
+  anchorZ: number,
+  targetX: number,
+  targetZ: number,
+): void {
+  panOffset.set(targetX - anchorX, 0, targetZ - anchorZ);
+  updateCameraFollow(camera, anchorX, anchorY, anchorZ);
+}
+
 export function setCameraFollowEnabled(enabled: boolean): void {
   cameraFollowEnabled = enabled;
 }

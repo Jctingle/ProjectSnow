@@ -18,6 +18,7 @@ import {
   getSim,
 } from '../entityStore';
 import { isFocusMode } from '../focusMode';
+import { getSelectedUnitId } from './selection';
 import { getGroundPointFromScreen } from './raycast';
 import type { DestinationMarkerController } from './destinationMarker';
 import { createUnitPegGeometry, createUnitPegMaterial, UNIT_PEG_Y_OFFSET } from '../render/unitPeg';
@@ -43,6 +44,8 @@ export type UnitSortieController = {
   update(nowMs: number): void;
   shiftBy(dx: number, dz: number): void;
   triggerAtCursor(): void;
+  getWorldPosition(unitId: number, out: THREE.Vector3): boolean;
+  setSelectedUnit(unitId: number | null): void;
 };
 
 const CELL_INTERIOR = 2;
@@ -51,10 +54,7 @@ const OUTBOUND_MIN_MS = 900;
 const RETURN_MIN_MS = 800;
 const WORLD_TRAVEL_SPEED = 3.5;
 const LERP_EPSILON = 1e-6;
-
-function randomIndex(maxExclusive: number): number {
-  return Math.floor(Math.random() * maxExclusive);
-}
+const SELECTED_UNIT_OUTLINE_COLOR = 0xe0b84f;
 
 function travelDurationMs(fromX: number, fromZ: number, toX: number, toZ: number, minMs: number): number {
   const distance = Math.hypot(toX - fromX, toZ - fromZ);
@@ -72,30 +72,90 @@ export function createUnitSortieController(
 
   let lastPointerX: number | null = null;
   let lastPointerY: number | null = null;
-  let activeSortie: ActiveSortie | null = null;
-  let sortieMesh: THREE.Mesh | null = null;
+  const activeSorties = new Map<number, ActiveSortie>();
+  const sortieMeshes = new Map<number, THREE.Mesh>();
+  const sortieOutlineMeshes = new Map<number, THREE.Mesh>();
+  let selectedUnitId: number | null = null;
 
   const sortieGeometry = createUnitPegGeometry();
   const sortieMaterial = createUnitPegMaterial();
+  const sortieOutlineMaterial = new THREE.MeshBasicMaterial({
+    color: SELECTED_UNIT_OUTLINE_COLOR,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 0.98,
+    depthTest: false,
+    depthWrite: false,
+  });
 
-  const ensureSortieMesh = (): THREE.Mesh => {
-    if (sortieMesh) return sortieMesh;
-    sortieMesh = new THREE.Mesh(sortieGeometry, sortieMaterial);
-    sortieMesh.visible = false;
-    scene.add(sortieMesh);
-    return sortieMesh;
+  const ensureSortieMesh = (unitId: number): THREE.Mesh => {
+    const existing = sortieMeshes.get(unitId);
+    if (existing) return existing;
+    const mesh = new THREE.Mesh(sortieGeometry, sortieMaterial);
+    mesh.visible = false;
+    scene.add(mesh);
+    sortieMeshes.set(unitId, mesh);
+    return mesh;
   };
 
-  const setSortieMeshAt = (x: number, z: number): void => {
+  const ensureSortieOutlineMesh = (unitId: number): THREE.Mesh => {
+    const existing = sortieOutlineMeshes.get(unitId);
+    if (existing) return existing;
+    const mesh = new THREE.Mesh(sortieGeometry, sortieOutlineMaterial);
+    mesh.scale.setScalar(1.3);
+    mesh.visible = false;
+    scene.add(mesh);
+    sortieOutlineMeshes.set(unitId, mesh);
+    return mesh;
+  };
+
+  const refreshSelectedOutlineVisibility = (): void => {
+    for (const [unitId, outline] of sortieOutlineMeshes) {
+      outline.visible = unitId === selectedUnitId && activeSorties.has(unitId);
+    }
+  };
+
+  const rebuildMarkers = (): void => {
+    const sim = getSim();
+    marker.rebuild(
+      Array.from(activeSorties.values(), (sortie) => ({
+        x: sortie.targetX,
+        z: sortie.targetZ,
+      })),
+      sim.apc_y(),
+    );
+  };
+
+  const setSortieMeshAt = (unitId: number, x: number, z: number): void => {
     const sim = getSim();
     const y = sim.height_at_or_sample(x, z) * sim.height_mult() + UNIT_PEG_Y_OFFSET;
-    const mesh = ensureSortieMesh();
+    const mesh = ensureSortieMesh(unitId);
     mesh.position.set(x, y, z);
     mesh.visible = true;
+    const outline = ensureSortieOutlineMesh(unitId);
+    outline.position.copy(mesh.position);
+    outline.visible = unitId === selectedUnitId;
   };
 
-  const hideSortieMesh = (): void => {
-    if (sortieMesh) sortieMesh.visible = false;
+  const writeWorldPosition = (
+    out: THREE.Vector3,
+    x: number,
+    z: number,
+  ): boolean => {
+    const sim = getSim();
+    out.set(
+      x,
+      sim.height_at_or_sample(x, z) * sim.height_mult() + UNIT_PEG_Y_OFFSET,
+      z,
+    );
+    return true;
+  };
+
+  const hideSortieMesh = (unitId: number): void => {
+    const mesh = sortieMeshes.get(unitId);
+    if (mesh) mesh.visible = false;
+    const outline = sortieOutlineMeshes.get(unitId);
+    if (outline) outline.visible = false;
   };
 
   const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -111,17 +171,21 @@ export function createUnitSortieController(
     lastPointerY = event.clientY;
   });
 
-  const clearSortie = (): void => {
-    activeSortie = null;
-    marker.clear();
-    hideSortieMesh();
+  const clearSortie = (unitId: number): void => {
+    activeSorties.delete(unitId);
+    hideSortieMesh(unitId);
+    rebuildMarkers();
   };
 
-  const chooseCandidateUnit = (): {
+  const selectedCandidateUnit = (): {
     unitId: number;
     cell: number;
     local: number;
   } | null => {
+    const unitId = selectedUnitId ?? getSelectedUnitId();
+    if (unitId === null) return null;
+    if (activeSorties.has(unitId)) return null;
+
     const count = getApcInterior().interior_unit_count();
     if (count <= 0) return null;
 
@@ -130,26 +194,25 @@ export function createUnitSortieController(
     const cells = getInteriorUnitCells();
     const locals = getInteriorUnitSubcells();
 
-    const candidates: number[] = [];
     for (let i = 0; i < count; i++) {
+      if (ids[i] !== unitId) continue;
+
       const mode = modes[i];
       if (mode !== InteriorUnitMode.BoardedIdle && mode !== InteriorUnitMode.AssignedMachine) {
-        continue;
+        return null;
       }
       if (cells[i] === 0xffffffff || locals[i] === 0xff) {
-        continue;
+        return null;
       }
-      candidates.push(i);
+
+      return {
+        unitId,
+        cell: cells[i],
+        local: locals[i],
+      };
     }
 
-    if (candidates.length === 0) return null;
-
-    const picked = candidates[randomIndex(candidates.length)];
-    return {
-      unitId: ids[picked],
-      cell: cells[picked],
-      local: locals[picked],
-    };
+    return null;
   };
 
   const findBoardSlot = (preferredCell: number, preferredLocal: number): { cell: number; local: number } | null => {
@@ -178,40 +241,33 @@ export function createUnitSortieController(
     return null;
   };
 
-  const transitionToReturning = (nowMs: number): void => {
-    if (!activeSortie) return;
-
-    const result = beginInteriorUnitReturn(activeSortie.unitId);
+  const transitionToReturning = (sortie: ActiveSortie, nowMs: number): void => {
+    const result = beginInteriorUnitReturn(sortie.unitId);
     if (result !== InteriorLifecycleResult.Ok) {
-      clearSortie();
+      clearSortie(sortie.unitId);
       return;
     }
 
     const sim = getSim();
-    activeSortie.returnStartX = activeSortie.targetX;
-    activeSortie.returnStartZ = activeSortie.targetZ;
-    const returnMs = travelDurationMs(activeSortie.targetX, activeSortie.targetZ, sim.apc_x(), sim.apc_z(), RETURN_MIN_MS);
-    activeSortie.phase = 'returning';
-    activeSortie.phaseStartMs = nowMs;
-    activeSortie.phaseDeadlineMs = nowMs + returnMs;
-
-    marker.rebuild([{ x: activeSortie.targetX, z: activeSortie.targetZ }], sim.apc_y());
+    sortie.returnStartX = sortie.targetX;
+    sortie.returnStartZ = sortie.targetZ;
+    const returnMs = travelDurationMs(sortie.targetX, sortie.targetZ, sim.apc_x(), sim.apc_z(), RETURN_MIN_MS);
+    sortie.phase = 'returning';
+    sortie.phaseStartMs = nowMs;
+    sortie.phaseDeadlineMs = nowMs + returnMs;
   };
 
-  const transitionToBoarding = (): boolean => {
-    if (!activeSortie) return false;
-    const result = beginInteriorUnitBoarding(activeSortie.unitId);
+  const transitionToBoarding = (sortie: ActiveSortie): boolean => {
+    const result = beginInteriorUnitBoarding(sortie.unitId);
     return result === InteriorLifecycleResult.Ok;
   };
 
-  const completeBoarding = (): boolean => {
-    if (!activeSortie) return false;
-
-    const slot = findBoardSlot(activeSortie.preferredBoardCell, activeSortie.preferredBoardLocal);
+  const completeBoarding = (sortie: ActiveSortie): boolean => {
+    const slot = findBoardSlot(sortie.preferredBoardCell, sortie.preferredBoardLocal);
     if (!slot) return false;
 
     const result = completeInteriorUnitBoarding(
-      activeSortie.unitId,
+      sortie.unitId,
       slot.cell,
       slot.local,
     );
@@ -219,13 +275,13 @@ export function createUnitSortieController(
   };
 
   const triggerAtCursor = (): void => {
-    if (activeSortie || isFocusMode()) return;
+    if (isFocusMode()) return;
     if (lastPointerX === null || lastPointerY === null) return;
 
     const worldPoint = getGroundPointFromScreen(lastPointerX, lastPointerY, camera, renderer);
     if (!worldPoint) return;
 
-    const candidate = chooseCandidateUnit();
+    const candidate = selectedCandidateUnit();
     if (!candidate) return;
 
     const beginExit = beginInteriorUnitExit(candidate.unitId);
@@ -241,7 +297,7 @@ export function createUnitSortieController(
     const now = performance.now();
     const outboundMs = travelDurationMs(sim.apc_x(), sim.apc_z(), worldPoint.x, worldPoint.z, OUTBOUND_MIN_MS);
 
-    activeSortie = {
+    const activeSortie: ActiveSortie = {
       unitId: candidate.unitId,
       targetX: worldPoint.x,
       targetZ: worldPoint.z,
@@ -255,71 +311,109 @@ export function createUnitSortieController(
       preferredBoardCell: candidate.cell,
       preferredBoardLocal: candidate.local,
     };
+    activeSorties.set(candidate.unitId, activeSortie);
 
-    setSortieMeshAt(sim.apc_x(), sim.apc_z());
-    marker.rebuild([{ x: worldPoint.x, z: worldPoint.z }], sim.apc_y());
+    setSortieMeshAt(candidate.unitId, sim.apc_x(), sim.apc_z());
+    rebuildMarkers();
   };
 
   const update = (nowMs: number): void => {
-    if (!activeSortie) return;
+    if (activeSorties.size === 0) return;
 
     const sim = getSim();
-    if (activeSortie.phase === 'outbound') {
-      const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
-      setSortieMeshAt(
-        lerp(activeSortie.outboundStartX, activeSortie.targetX, t),
-        lerp(activeSortie.outboundStartZ, activeSortie.targetZ, t),
-      );
-      if (nowMs < activeSortie.phaseDeadlineMs) {
-        marker.updateDynamicLine();
-        return;
+    for (const sortie of activeSorties.values()) {
+      if (sortie.phase === 'outbound') {
+        const t = phaseProgress(nowMs, sortie.phaseStartMs, sortie.phaseDeadlineMs);
+        setSortieMeshAt(
+          sortie.unitId,
+          lerp(sortie.outboundStartX, sortie.targetX, t),
+          lerp(sortie.outboundStartZ, sortie.targetZ, t),
+        );
+        if (nowMs < sortie.phaseDeadlineMs) {
+          continue;
+        }
+        setSortieMeshAt(sortie.unitId, sortie.targetX, sortie.targetZ);
+        transitionToReturning(sortie, nowMs);
+        continue;
       }
-      setSortieMeshAt(activeSortie.targetX, activeSortie.targetZ);
-      transitionToReturning(nowMs);
-      return;
-    }
 
-    if (activeSortie.phase === 'returning') {
-      const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
-      setSortieMeshAt(
-        lerp(activeSortie.returnStartX, sim.apc_x(), t),
-        lerp(activeSortie.returnStartZ, sim.apc_z(), t),
-      );
-      if (nowMs < activeSortie.phaseDeadlineMs) {
-        marker.updateDynamicLine();
-        return;
+      if (sortie.phase === 'returning') {
+        const t = phaseProgress(nowMs, sortie.phaseStartMs, sortie.phaseDeadlineMs);
+        setSortieMeshAt(
+          sortie.unitId,
+          lerp(sortie.returnStartX, sim.apc_x(), t),
+          lerp(sortie.returnStartZ, sim.apc_z(), t),
+        );
+        if (nowMs < sortie.phaseDeadlineMs) {
+          continue;
+        }
+        if (!transitionToBoarding(sortie)) {
+          clearSortie(sortie.unitId);
+          continue;
+        }
+        sortie.phase = 'boarding';
+        sortie.phaseDeadlineMs = nowMs + 1;
+        continue;
       }
-      if (!transitionToBoarding()) {
-        clearSortie();
-        return;
+
+      if (!completeBoarding(sortie)) {
+        sortie.phaseDeadlineMs = nowMs + 250;
+        continue;
       }
-      activeSortie.phase = 'boarding';
-      activeSortie.phaseDeadlineMs = nowMs + 1;
-      return;
-    }
 
-    if (!completeBoarding()) {
-      activeSortie.phaseDeadlineMs = nowMs + 250;
-      return;
+      clearSortie(sortie.unitId);
     }
-
-    marker.clear();
-    activeSortie = null;
-    hideSortieMesh();
-    marker.rebuild([], sim.apc_y());
   };
 
   const shiftBy = (dx: number, dz: number): void => {
-    if (!activeSortie) return;
-    activeSortie.targetX += dx;
-    activeSortie.targetZ += dz;
+    if (activeSorties.size === 0) return;
+    for (const sortie of activeSorties.values()) {
+      sortie.targetX += dx;
+      sortie.targetZ += dz;
+    }
     const sim = getSim();
-    marker.shiftBy(dx, dz, [{ x: activeSortie.targetX, z: activeSortie.targetZ }], sim.apc_y());
+    marker.shiftBy(
+      dx,
+      dz,
+      Array.from(activeSorties.values(), (sortie) => ({ x: sortie.targetX, z: sortie.targetZ })),
+      sim.apc_y(),
+    );
   };
 
   return {
     update,
     shiftBy,
     triggerAtCursor,
+    getWorldPosition(unitId: number, out: THREE.Vector3): boolean {
+      const activeSortie = activeSorties.get(unitId);
+      if (!activeSortie) return false;
+
+      const nowMs = performance.now();
+      if (activeSortie.phase === 'outbound') {
+        const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
+        return writeWorldPosition(
+          out,
+          lerp(activeSortie.outboundStartX, activeSortie.targetX, t),
+          lerp(activeSortie.outboundStartZ, activeSortie.targetZ, t),
+        );
+      }
+
+      if (activeSortie.phase === 'returning') {
+        const sim = getSim();
+        const t = phaseProgress(nowMs, activeSortie.phaseStartMs, activeSortie.phaseDeadlineMs);
+        return writeWorldPosition(
+          out,
+          lerp(activeSortie.returnStartX, sim.apc_x(), t),
+          lerp(activeSortie.returnStartZ, sim.apc_z(), t),
+        );
+      }
+
+      const sim = getSim();
+      return writeWorldPosition(out, sim.apc_x(), sim.apc_z());
+    },
+    setSelectedUnit(unitId: number | null): void {
+      selectedUnitId = unitId;
+      refreshSelectedOutlineVisibility();
+    },
   };
 }

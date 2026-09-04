@@ -6,6 +6,7 @@ import {
   InteriorUnitMode,
   UnitSpecialization,
 } from '../entityStore';
+import { getSelectedUnitId, isUnitSelected } from '../input/selection';
 import { registerWindowToggle } from './windowToggleBar';
 
 type UnitRosterPanelController = {
@@ -58,7 +59,10 @@ function sameSnapshots(a: UnitSnapshot[], b: UnitSnapshot[]): boolean {
   return true;
 }
 
-export function createUnitRosterPanel(): UnitRosterPanelController {
+export function createUnitRosterPanel(
+  onUnitClick?: (unitId: number) => void,
+  onInteriorVisibilityChange?: (visible: boolean) => void,
+): UnitRosterPanelController {
   const panel = document.createElement('div');
   panel.style.cssText =
     'position:fixed; left:12px; bottom:12px; z-index:10; width:min(360px, calc(100vw - 24px)); max-height:36vh; overflow:auto; display:flex; flex-direction:column; gap:6px; background:rgba(10,14,24,0.78); border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px; color:#e7edf8; font-family:monospace; font-size:12px; backdrop-filter: blur(2px);';
@@ -76,7 +80,22 @@ export function createUnitRosterPanel(): UnitRosterPanelController {
   const list = document.createElement('div');
   list.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:6px;';
 
+  const visibilityRow = document.createElement('label');
+  visibilityRow.style.cssText =
+    'display:flex; align-items:center; gap:8px; padding:4px 2px 2px; opacity:0.9; cursor:pointer; user-select:none;';
+
+  const visibilityToggle = document.createElement('input');
+  visibilityToggle.type = 'checkbox';
+  visibilityToggle.checked = true;
+
+  const visibilityText = document.createElement('span');
+  visibilityText.textContent = 'Show Inside APC';
+
+  visibilityRow.appendChild(visibilityToggle);
+  visibilityRow.appendChild(visibilityText);
+
   panel.appendChild(header);
+  panel.appendChild(visibilityRow);
   panel.appendChild(list);
 
   document.body.appendChild(panel);
@@ -88,16 +107,23 @@ export function createUnitRosterPanel(): UnitRosterPanelController {
       panel.style.display = visible ? 'flex' : 'none';
     },
   });
+  visibilityToggle.addEventListener('change', () => {
+    onInteriorVisibilityChange?.(visibilityToggle.checked);
+  });
+  onInteriorVisibilityChange?.(visibilityToggle.checked);
 
   let lastSnapshot: UnitSnapshot[] = [];
+  let lastSelectedUnitId: number | null = null;
 
   const render = (units: UnitSnapshot[]): void => {
     list.replaceChildren();
     count.textContent = String(units.length);
     for (const unit of units) {
       const box = document.createElement('div');
-      box.style.cssText =
-        'display:flex; flex-direction:column; gap:3px; min-height:56px; border:1px solid rgba(255,255,255,0.18); border-radius:4px; padding:6px; background:rgba(255,255,255,0.05);';
+      const selected = isUnitSelected(unit.id);
+      box.style.cssText = selected
+        ? 'display:flex; flex-direction:column; gap:3px; min-height:56px; border:1px solid #40e0d0; border-radius:4px; padding:6px; background:rgba(64,224,208,0.14); box-shadow: inset 0 0 0 1px rgba(64,224,208,0.55), 0 0 0 1px rgba(64,224,208,0.22); cursor:pointer;'
+        : 'display:flex; flex-direction:column; gap:3px; min-height:56px; border:1px solid rgba(255,255,255,0.18); border-radius:4px; padding:6px; background:rgba(255,255,255,0.05); cursor:pointer;';
 
       const name = document.createElement('span');
       name.style.cssText = 'font-weight:700; color:#ffffff;';
@@ -114,6 +140,9 @@ export function createUnitRosterPanel(): UnitRosterPanelController {
       box.appendChild(name);
       box.appendChild(mode);
       box.appendChild(resources);
+      box.addEventListener('click', () => {
+        onUnitClick?.(unit.id);
+      });
       list.appendChild(box);
     }
   };
@@ -134,8 +163,10 @@ export function createUnitRosterPanel(): UnitRosterPanelController {
       });
     }
 
-    if (sameSnapshots(lastSnapshot, next)) return;
+    const selectedUnitId = getSelectedUnitId();
+    if (sameSnapshots(lastSnapshot, next) && lastSelectedUnitId === selectedUnitId) return;
     lastSnapshot = next;
+    lastSelectedUnitId = selectedUnitId;
     render(next);
   };
 

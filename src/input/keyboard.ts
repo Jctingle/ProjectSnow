@@ -1,9 +1,9 @@
-import { clearSelection } from './selection';
 import { getFocusModeKind, isCubeFocusMode, popFocusModeLevel, type FocusModeKind } from '../focusMode';
 
 let onFocusModeChanged: ((mode: FocusModeKind) => void) | null = null;
 let onFocusModeEnter: (() => void) | null = null;
 let onSortieCommand: (() => void) | null = null;
+let onResetView: (() => void) | null = null;
 
 export function setFocusModeChangedHandler(handler: ((mode: FocusModeKind) => void) | null): void {
   onFocusModeChanged = handler;
@@ -15,6 +15,10 @@ export function setFocusModeEnterHandler(handler: (() => void) | null): void {
 
 export function setSortieCommandHandler(handler: (() => void) | null): void {
   onSortieCommand = handler;
+}
+
+export function setResetViewHandler(handler: (() => void) | null): void {
+  onResetView = handler;
 }
 
 export function attachKeyboardShortcuts(): void {
@@ -46,14 +50,8 @@ export function attachKeyboardShortcuts(): void {
       return;
     }
 
-    const mode = getFocusModeKind();
-    if (mode !== 'normal') {
-      event.preventDefault();
-      event.stopPropagation();
-      onFocusModeChanged?.(popFocusModeLevel());
-      return;
-    }
-
-    clearSelection();
+    event.preventDefault();
+    event.stopPropagation();
+    onResetView?.();
   });
 }

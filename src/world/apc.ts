@@ -387,13 +387,11 @@ function createApcGrid(dimensions: ApcDimensions): THREE.Group {
   return group;
 }
 
-const APC_HULL_OPACITY = 0.5;
-
 function createApcHullMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: 0xff8844,
-    transparent: true,
-    opacity: APC_HULL_OPACITY,
+    transparent: false,
+    opacity: 1,
   });
 }
 
@@ -473,8 +471,8 @@ export function setApcHullVisible(mesh: THREE.Mesh, visible: boolean): void {
 export function setApcHullCutaway(mesh: THREE.Mesh, enabled: boolean): void {
   const material = mesh.material as THREE.MeshStandardMaterial;
   material.side = enabled ? THREE.BackSide : THREE.FrontSide;
-  material.transparent = !enabled;
-  material.opacity = enabled ? 1 : APC_HULL_OPACITY;
+  material.transparent = false;
+  material.opacity = 1;
   material.needsUpdate = true;
 }
 
