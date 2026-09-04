@@ -92,7 +92,6 @@ export function createDevPanel(
   onApcCellsChange?: (cells: { x: number; y: number; z: number }, reset: boolean) => void,
   onApcInteriorLabelsToggle?: (visible: boolean) => void,
   onApcHullToggle?: (visible: boolean) => void,
-  onApcTracerToggle?: (enabled: boolean) => void,
   onAddApcInteriorUnit?: () => void,
 ): void {
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
@@ -405,21 +404,6 @@ export function createDevPanel(
     onApcHullToggle?.(apcHullCheckbox.checked);
   });
   testingPanel.appendChild(apcHullRow);
-
-  const apcTracerRow = document.createElement('div');
-  apcTracerRow.style.cssText =
-    'display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
-  const apcTracerCheckbox = document.createElement('input');
-  apcTracerCheckbox.type = 'checkbox';
-  apcTracerCheckbox.checked = false;
-  const apcTracerLabel = document.createElement('label');
-  apcTracerLabel.textContent = 'Cell tracer demo';
-  apcTracerRow.appendChild(apcTracerCheckbox);
-  apcTracerRow.appendChild(apcTracerLabel);
-  apcTracerCheckbox.addEventListener('change', () => {
-    onApcTracerToggle?.(apcTracerCheckbox.checked);
-  });
-  testingPanel.appendChild(apcTracerRow);
 
   const addInteriorUnitRow = document.createElement('div');
   addInteriorUnitRow.style.cssText =

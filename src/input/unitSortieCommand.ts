@@ -320,6 +320,8 @@ export function createUnitSortieController(
   const update = (nowMs: number): void => {
     if (activeSorties.size === 0) return;
 
+    marker.updateDynamicLine();
+
     const sim = getSim();
     for (const sortie of activeSorties.values()) {
       if (sortie.phase === 'outbound') {
