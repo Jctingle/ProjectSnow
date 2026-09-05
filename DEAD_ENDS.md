@@ -9,6 +9,7 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 - Interior unit profile data model is in place (ids, stats, specialization, equipment slots, inventory fields), but full gameplay loops for upgrades, inventory use, and equipment effects are not built.
 - Interior unit lifecycle states are in place (boarded, deployed, returning, boarding), but world mission behavior is still represented by a timed sortie flow rather than full authoritative per-unit world simulation.
 - Interior unit machine-assignment state exists, but assignment-driven behavior and machine-operation gameplay are not fully implemented.
+- APC interior rendering/input internals are now split across focused helper modules, but the remaining facade still reflects a rendering-first debug surface rather than a finalized gameplay-authoritative interior system.
 
 ## Save And Persistence Gaps
 
@@ -36,4 +37,5 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 ## Explicitly Retired Or Inactive Paths
 
 - Legacy world-unit swarm/recall runtime path has been removed from active architecture.
+- APC cell tracer demo scaffolding has been removed; there is no longer a default fake machine/product loop seeded into the APC interior.
 - Terrain helper `height_at_clamped` is currently retained but intentionally unused.

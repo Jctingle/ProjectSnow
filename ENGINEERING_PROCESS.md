@@ -13,6 +13,7 @@
 - Preserve single sources of truth: avoid duplicated constants and duplicated state across JS and WASM.
 - Keep architecture organized: clear ownership per module, explicit interfaces, and minimal cross-layer leakage.
 - Follow programming standards: readable naming, small focused functions, explicit invariants, and test-backed behavior changes.
+- Retire dead scaffolding when it stops earning its keep: remove inactive toggles, dormant demo paths, and fake fixtures once they no longer provide real verification value.
 
 ## Working Workflow
 
@@ -21,6 +22,13 @@
 3. Implement smallest coherent vertical slice.
 4. Validate determinism and correctness first, then tune visuals/perf.
 5. Document resulting status in [DEAD_ENDS.md](DEAD_ENDS.md) when scope or readiness changed.
+
+## Refactor Workflow
+
+- Prefer extraction in narrow slices that preserve the existing public facade while moving one internal responsibility at a time.
+- After each substantive extraction, run the narrowest available executable validation immediately; for this repo that is usually `npm run build`.
+- Treat patch corruption, stale imports, and duplicated glue code as first-order refactor risks; fix the owning slice before expanding scope.
+- If a debug/demo surface no longer exercises real behavior, remove it instead of carrying it through the next architectural phase.
 
 ## Determinism And Scale Checklist
 
