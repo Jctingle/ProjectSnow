@@ -10,7 +10,7 @@ const TEST_HEIGHTMAP_LEN: usize = TEST_HEIGHTMAP_W * TEST_HEIGHTMAP_H;
 
 fn build_sim() -> Sim {
     let mut sim = Sim::new(
-        4242, 17.0, 29.0, 0.028, 5.2, 72.0, 1.2, 2.1, 0.011, 0.2, 0.95, 0.15,
+        4242, 17.0, 29.0, 0.028, 5.2, 72.0, 1.2, 2.1, 0.011, 0.2, 0.95, 0.15, 45.0,
     );
     sim.generate_heightmap(TEST_HEIGHTMAP_W, TEST_HEIGHTMAP_H, 144.0, 144.0);
     sim.generate_slopemap();

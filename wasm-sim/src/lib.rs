@@ -39,6 +39,7 @@ impl Sim {
         sweep_amp: f32,
         tier_height_scale: f32,
         apc_speed: f32,
+        apc_cliff_threshold_deg: f32,
     ) -> Sim {
         let mut terrain = terrain::Terrain::new(
             noise_seed,
@@ -65,7 +66,7 @@ impl Sim {
             current,
             neighbors: std::array::from_fn(|_| None),
             world_seed: noise_seed,
-            apc: Apc::new(apc_speed),
+            apc: Apc::new(apc_speed, apc_cliff_threshold_deg),
         }
     }
 
@@ -137,6 +138,10 @@ impl Sim {
 
     pub fn set_apc_speed(&mut self, v: f32) {
         self.apc.set_speed(v);
+    }
+
+    pub fn set_apc_cliff_threshold_deg(&mut self, v: f32) {
+        self.apc.set_cliff_threshold_deg(v);
     }
 
     pub fn tick(&mut self, delta: f32) {
@@ -239,7 +244,8 @@ impl Sim {
                 tx = tx.clamp(-(he - m), he - m);
             }
         }
-        self.apc.set_target(tx, tz);
+        let requires_shard_crossing = tx.abs() > he || tz.abs() > he;
+        self.apc.set_target(tx, tz, requires_shard_crossing);
     }
 
     pub fn apc_touch_radius(&self) -> f32 {

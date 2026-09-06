@@ -527,6 +527,7 @@ export function createDevPanel(
         }
         slopeSettings.cliffThresholdDeg = value;
         setSlopeThresholds(slopeSettings.passableMaxDeg, slopeSettings.cliffThresholdDeg);
+        sim.set_apc_cliff_threshold_deg(value);
       },
     },
     slopeThresholdPanel,

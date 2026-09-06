@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getSim, getSlopemap } from '../entityStore';
+import { getNeighborSlopemap, getSim, getSlopemap } from '../entityStore';
 import { isFocusMode } from '../focusMode';
 import {
   DEBUG_INPUT_LOGGING,
@@ -60,6 +60,17 @@ function resolveShardForPoint(x: number, z: number): ShardResolution {
     relativeDc,
     absoluteRow: sim.current_shard_row() + relativeDr,
     absoluteCol: sim.current_shard_col() + relativeDc,
+  };
+}
+
+function localizePointToResolvedShard(
+  x: number,
+  z: number,
+  shard: Pick<ShardResolution, 'relativeDr' | 'relativeDc'>,
+): { x: number; z: number } {
+  return {
+    x: x - shard.relativeDc * GROUND_SIZE,
+    z: z - shard.relativeDr * GROUND_SIZE,
   };
 }
 
@@ -135,26 +146,36 @@ export function attachApcMoveCommand(
     const shard = resolveShardForPoint(worldPoint.x, worldPoint.z);
     const distanceFromApc = Math.hypot(worldPoint.x - apcX, worldPoint.z - apcZ);
 
-    const slopemap = getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
-    const sampledSlopeDeg = nearestSlopeAt(slopemap, worldPoint.x, worldPoint.z);
+    const slopemap = shard.relativeDr === 0 && shard.relativeDc === 0
+      ? getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE)
+      : getNeighborSlopemap(
+          shard.relativeDr,
+          shard.relativeDc,
+          HEIGHTMAP_GRID_SIZE,
+          HEIGHTMAP_GRID_SIZE,
+        );
+    const localPoint = localizePointToResolvedShard(worldPoint.x, worldPoint.z, shard);
+    const sampledSlopeDeg = slopemap
+      ? nearestSlopeAt(slopemap, localPoint.x, localPoint.z)
+      : Number.NaN;
 
     // Use the same nearest-cell normalization as nearestSlopeAt().
     const gridSize = HEIGHTMAP_GRID_SIZE;
     const col = Math.min(
       Math.max(
-        Math.round((worldPoint.x / GROUND_SIZE + 0.5) * (gridSize - 1)),
+        Math.round((localPoint.x / GROUND_SIZE + 0.5) * (gridSize - 1)),
         0,
       ),
       gridSize - 1,
     );
     const row = Math.min(
       Math.max(
-        Math.round((worldPoint.z / GROUND_SIZE + 0.5) * (gridSize - 1)),
+        Math.round((localPoint.z / GROUND_SIZE + 0.5) * (gridSize - 1)),
         0,
       ),
       gridSize - 1,
     );
-    dumpTierNeighborhood(slopemap, col, row);
+    if (slopemap) dumpTierNeighborhood(slopemap, col, row);
 
     // DIAGNOSTIC - TEMPORARY - remove after slope classification investigation
     // Compares cached slopemap values against the authoritative Rust point query
@@ -164,10 +185,8 @@ export function attachApcMoveCommand(
       const live = sim.slope_degrees_at(worldPoint.x, worldPoint.z);
       // The Rust sim rebases the active shard to local origin on crossing;
       // current terrain and its cached maps are always centered at (0, 0).
-      const shardOriginX = 0;
-      const shardOriginZ = 0;
-      const localX = worldPoint.x - shardOriginX;
-      const localZ = worldPoint.z - shardOriginZ;
+      const localX = localPoint.x;
+      const localZ = localPoint.z;
       const halfGround = GROUND_SIZE / 2;
       const outsideCachedWindow =
         Math.abs(localX) > halfGround || Math.abs(localZ) > halfGround;
@@ -190,7 +209,6 @@ export function attachApcMoveCommand(
       fromZ,
       worldPoint.x,
       worldPoint.z,
-      slopemap,
     );
     if (!destinationValidity.valid) {
       logRightClick('reject:destination-validity', () => ({

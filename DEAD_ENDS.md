@@ -21,7 +21,7 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 
 - Destination validation still lacks the planned unified gate function with reason codes as a single source of truth.
 - Current destination checks handle standability (slope/cliff), but reachability/path-existence checks are still deferred with A* work.
-- Cliff-face precision handling still needs the planned mesh-raycast-first validation path.
+- Cliff-face validation is now shard-aware across the current and loaded neighbor shards, with continuous segment sampling plus downhill travel-grade checks in click validation and APC movement, but the planned mesh-raycast-first validation path is still needed for full click-precision correctness.
 
 ## World And Encounter Systems Not Built
 

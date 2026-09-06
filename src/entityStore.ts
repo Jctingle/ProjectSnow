@@ -24,6 +24,7 @@ import {
   SCALE,
   SEED_X,
   SEED_Y,
+  SLOPE_CLIFF_THRESHOLD_DEG,
   SWEEP_AMP,
   SWEEP_SCALE,
   TIER_HEIGHT_SCALE,
@@ -54,6 +55,7 @@ export async function initStore(): Promise<void> {
     SWEEP_AMP,
     TIER_HEIGHT_SCALE,
     APC_SPEED_DEFAULT,
+    SLOPE_CLIFF_THRESHOLD_DEG,
   );
   apcInterior = new ApcInterior(
     APC_ENVELOPE_X,
