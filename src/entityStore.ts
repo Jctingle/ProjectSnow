@@ -96,6 +96,15 @@ export function getSlopemap(width: number, height: number): Float32Array {
   return new Float32Array(memory.buffer, getSim().slopemap_ptr(), width * height);
 }
 
+/**
+ * Zero-copy view over the cached access-hill contribution grid. Call AFTER
+ * sim.generate_access_hillmap(), which itself should run after generate_heightmap().
+ * Used only for debug visualization of the new ramp/access terrain layer.
+ */
+export function getAccessHillmap(width: number, height: number): Float32Array {
+  return new Float32Array(memory.buffer, getSim().access_hillmap_ptr(), width * height);
+}
+
 export function getNeighborHeightmap(
   dr: number,
   dc: number,
@@ -114,6 +123,17 @@ export function getNeighborSlopemap(
   height: number
 ): Float32Array | null {
   const ptr = getSim().neighbor_slopemap_ptr(dr, dc);
+  if (ptr === 0) return null;
+  return new Float32Array(memory.buffer, ptr, width * height);
+}
+
+export function getNeighborAccessHillmap(
+  dr: number,
+  dc: number,
+  width: number,
+  height: number
+): Float32Array | null {
+  const ptr = getSim().neighbor_access_hillmap_ptr(dr, dc);
   if (ptr === 0) return null;
   return new Float32Array(memory.buffer, ptr, width * height);
 }

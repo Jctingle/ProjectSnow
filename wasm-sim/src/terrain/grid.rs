@@ -4,6 +4,7 @@ impl Terrain {
     pub fn generate_heightmap(&mut self, grid_w: usize, grid_h: usize, world_w: f32, world_h: f32) {
         if grid_w == 0 || grid_h == 0 {
             self.heightmap.clear();
+            self.access_hillmap.clear();
             self.hm_width = 0;
             self.hm_height = 0;
             self.hm_half_w = world_w * 0.5;
@@ -44,6 +45,40 @@ impl Terrain {
                 };
                 let wx = (vx - 0.5) * world_w;
                 self.heightmap[row * grid_w + col] = self.sample_height(wx as f64, wz as f64);
+            }
+        }
+    }
+
+    /// Must be called after generate_heightmap(). Builds a cached grid of the
+    /// access-hill contribution alone so the debug overlay can highlight just
+    /// the ramp layer without trying to visually infer it from the full terrain.
+    pub fn generate_access_hillmap(&mut self) {
+        let w = self.hm_width;
+        let h = self.hm_height;
+
+        if w == 0 || h == 0 {
+            self.access_hillmap.clear();
+            return;
+        }
+
+        self.access_hillmap = vec![0.0; w * h];
+
+        for row in 0..h {
+            let vz = if h > 1 {
+                row as f32 / (h as f32 - 1.0)
+            } else {
+                0.5
+            };
+            let wz = (vz - 0.5) * (self.hm_half_h * 2.0);
+
+            for col in 0..w {
+                let vx = if w > 1 {
+                    col as f32 / (w as f32 - 1.0)
+                } else {
+                    0.5
+                };
+                let wx = (vx - 0.5) * (self.hm_half_w * 2.0);
+                self.access_hillmap[row * w + col] = self.access_hill_height_at(wx, wz);
             }
         }
     }
@@ -146,6 +181,10 @@ impl Terrain {
 
     pub fn heightmap_ptr(&self) -> *const f32 {
         self.heightmap.as_ptr()
+    }
+
+    pub fn access_hillmap_ptr(&self) -> *const f32 {
+        self.access_hillmap.as_ptr()
     }
 
     pub fn slopemap_ptr(&self) -> *const f32 {

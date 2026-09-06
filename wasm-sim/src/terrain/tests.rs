@@ -134,6 +134,50 @@ fn terrain_seed_distribution_sanity() {
 }
 
 #[test]
+fn access_hill_generation_is_deterministic() {
+    let world_seed = 4242u32;
+    let mut found = None;
+
+    'search: for row in -4..=4 {
+        for col in -4..=4 {
+            let mut terrain =
+                Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+            terrain.generate_heightmap(0, 0, 144.0, 144.0);
+            terrain.regenerate(world_seed, row, col);
+            if !terrain.access_hills.is_empty() {
+                found = Some((row, col, terrain.access_hills.len()));
+                break 'search;
+            }
+        }
+    }
+
+    let Some((row, col, count)) = found else {
+        panic!("expected at least one shard in search window to produce an access hill");
+    };
+
+    let mut a = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    a.generate_heightmap(0, 0, 144.0, 144.0);
+    a.regenerate(world_seed, row, col);
+
+    let mut b = Terrain::new(world_seed, 17.0, 29.0, 0.028, 5.2, 1.2, 2.1, 0.011, 0.2, 0.95);
+    b.generate_heightmap(0, 0, 144.0, 144.0);
+    b.regenerate(world_seed, row, col);
+
+    assert_eq!(a.access_hills.len(), count);
+    assert_eq!(b.access_hills.len(), count);
+
+    for (left, right) in a.access_hills.iter().zip(b.access_hills.iter()) {
+        assert!((left.center_x - right.center_x).abs() <= 1e-6);
+        assert!((left.center_z - right.center_z).abs() <= 1e-6);
+        assert!((left.anchor_x - right.anchor_x).abs() <= 1e-6);
+        assert!((left.anchor_z - right.anchor_z).abs() <= 1e-6);
+        assert!((left.radius - right.radius).abs() <= 1e-6);
+        assert!((left.falloff - right.falloff).abs() <= 1e-6);
+        assert!((left.height_gain - right.height_gain).abs() <= 1e-6);
+    }
+}
+
+#[test]
 fn shard_edge_continuity_matches_across_neighbors() {
     let world_seed = 9001;
     let half_extent = 72.0;

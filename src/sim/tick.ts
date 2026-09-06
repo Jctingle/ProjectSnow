@@ -13,6 +13,7 @@ export async function initSim(): Promise<void> {
     GROUND_SIZE,
     GROUND_SIZE
   );
+  getSim().generate_access_hillmap();
   getSim().generate_slopemap();
   ready = true;
 }
@@ -33,6 +34,7 @@ export function refreshHeightmap(): void {
     GROUND_SIZE,
     GROUND_SIZE
   );
+  getSim().generate_access_hillmap();
   getSim().generate_slopemap();
 }
 

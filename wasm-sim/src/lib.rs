@@ -93,6 +93,10 @@ impl Sim {
         self.current.terrain.generate_slopemap();
     }
 
+    pub fn generate_access_hillmap(&mut self) {
+        self.current.terrain.generate_access_hillmap();
+    }
+
     pub fn regenerate_terrain(&mut self, noise_seed: u32) {
         self.world_seed = noise_seed;
         self.current
@@ -177,6 +181,10 @@ impl Sim {
         self.current.terrain.slopemap_ptr()
     }
 
+    pub fn access_hillmap_ptr(&self) -> *const f32 {
+        self.current.terrain.access_hillmap_ptr()
+    }
+
     pub fn height_mult(&self) -> f32 {
         self.current.terrain.height_mult()
     }
@@ -250,6 +258,11 @@ impl Sim {
     pub fn neighbor_slopemap_ptr(&self, dr: i32, dc: i32) -> *const f32 {
         self.neighbor_shard(dr, dc)
             .map_or(std::ptr::null(), |neighbor| neighbor.terrain.slopemap_ptr())
+    }
+
+    pub fn neighbor_access_hillmap_ptr(&self, dr: i32, dc: i32) -> *const f32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.terrain.access_hillmap_ptr())
     }
 
     pub fn current_shard_row(&self) -> i32 {
