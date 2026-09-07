@@ -1,11 +1,12 @@
 use crate::rng::{cell_seed, Rng};
-use crate::terrain::Terrain;
+use crate::terrain::{Terrain, SEA_LEVEL};
 
 pub(crate) const MAX_WORLD_NODES_PER_SHARD: usize = 32;
 const LAYER_WORLD_NODES: u32 = 2;
 const STRUCTURE_EDGE_MARGIN: f32 = 10.0;
 const STRUCTURE_ATTEMPTS: usize = 10;
 const SCRAP_CANDIDATES_PER_NODE: usize = 12;
+const RESOURCE_CANDIDATES_PER_NODE: usize = 20;
 const SCRAP_RADIUS_MIN: f32 = 2.0;
 const SCRAP_RADIUS_MAX: f32 = 5.0;
 const SCRAP_DEPTH_MIN: f32 = 2.0;
@@ -16,16 +17,53 @@ const SCRAP_SLOPE_WEIGHT: f32 = 1.0;
 const SCRAP_STRUCTURE_CLEARANCE: f32 = 14.0;
 const SCRAP_MIN_SPACING: f32 = SCRAP_RADIUS_MAX * 2.4;
 const SCRAP_FLATNESS_SAMPLE_EPS: f32 = 1.0;
+const SCRAP_TARGET_MIN: usize = 1;
+const SCRAP_TARGET_MAX: usize = 2;
+const NICKEL_TARGET_MIN: usize = 2;
+const NICKEL_TARGET_MAX: usize = 4;
+const NICKEL_EDGE_MARGIN: f32 = 8.0;
+const NICKEL_MIN_SPACING: f32 = 12.0;
+const NICKEL_MAX_SLOPE_DEG: f32 = 8.0;
+const NICKEL_MAX_HEIGHT_ABOVE_SEA: f32 = 0.45;
+const NICKEL_HEIGHT_WEIGHT: f32 = 8.0;
+const NICKEL_SLOPE_WEIGHT: f32 = 1.5;
+const NICKEL_SCRAP_CLEARANCE: f32 = 10.0;
+const NICKEL_STRUCTURE_CLEARANCE: f32 = 14.0;
+const NICKEL_BAND_WIDTH_MIN: f32 = 5.0;
+const NICKEL_BAND_WIDTH_MAX: f32 = 10.0;
+const NICKEL_BAND_LENGTH_MIN: f32 = 2.0;
+const NICKEL_BAND_LENGTH_MAX: f32 = 4.5;
+const COAL_TARGET_MIN: usize = 2;
+const COAL_TARGET_MAX: usize = 4;
+const COAL_EDGE_MARGIN: f32 = 8.0;
+const COAL_MIN_SPACING: f32 = 14.0;
+const COAL_BASE_MAX_SLOPE_DEG: f32 = 30.0;
+const COAL_MIN_CLIFF_RISE: f32 = 1.25;
+const COAL_MIN_CLIFF_SLOPE_DEG: f32 = 34.0;
+const COAL_BASE_HEIGHT_MAX_ABOVE_SEA: f32 = 2.5;
+const COAL_RISE_WEIGHT: f32 = 4.0;
+const COAL_BASE_SLOPE_WEIGHT: f32 = 0.65;
+const COAL_HEIGHT_WEIGHT: f32 = 1.0;
+const COAL_SCRAP_CLEARANCE: f32 = 12.0;
+const COAL_STRUCTURE_CLEARANCE: f32 = 16.0;
+const COAL_SEAM_LENGTH_MIN: f32 = 4.0;
+const COAL_SEAM_LENGTH_MAX: f32 = 8.5;
+const COAL_SEAM_HEIGHT_MIN: f32 = 1.6;
+const COAL_SEAM_HEIGHT_MAX: f32 = 3.2;
+const COAL_GRADIENT_SAMPLE_EPS: f32 = 0.75;
 pub(crate) const SCRAP_MAX_SLOPE_DEG: f32 = 18.0;
 
 pub(crate) mod category {
     pub(crate) const STRUCTURE: u8 = 1;
     pub(crate) const METAL_SCRAP: u8 = 2;
+    pub(crate) const RAW_RESOURCE: u8 = 3;
 }
 
 pub(crate) mod subtype {
     pub(crate) const RESERVED: u8 = 0;
     pub(crate) const SCRAP_FIELD: u8 = 1;
+    pub(crate) const NICKEL_BAND: u8 = 2;
+    pub(crate) const COAL_SEAM: u8 = 3;
 }
 
 pub(crate) struct WorldNodes {
@@ -49,6 +87,8 @@ impl WorldNodes {
 
         nodes.generate_reserved_structure_slot(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes.generate_scrap_fields(world_seed, row, col, terrain, half_extent, &mut rng);
+        nodes.generate_nickel_bands(world_seed, row, col, terrain, half_extent, &mut rng);
+        nodes.generate_coal_seams(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes
     }
 
@@ -132,7 +172,8 @@ impl WorldNodes {
         half_extent: f32,
         rng: &mut Rng,
     ) {
-        let target_count = 3 + (rng.next_unsigned() * 4.0) as usize;
+        let target_count = SCRAP_TARGET_MIN
+            + (rng.next_unsigned() * (SCRAP_TARGET_MAX - SCRAP_TARGET_MIN + 1) as f32) as usize;
         for scrap_index in 0..target_count {
             if self.count >= MAX_WORLD_NODES_PER_SHARD {
                 break;
@@ -156,6 +197,83 @@ impl WorldNodes {
                 depth,
                 cell_seed(world_seed, row, col, 0x2000 + scrap_index as u32),
                 0,
+            );
+        }
+    }
+
+    fn generate_nickel_bands(
+        &mut self,
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) {
+        let target_count = NICKEL_TARGET_MIN
+            + (rng.next_unsigned() * (NICKEL_TARGET_MAX - NICKEL_TARGET_MIN + 1) as f32)
+                as usize;
+        for nickel_index in 0..target_count {
+            if self.count >= MAX_WORLD_NODES_PER_SHARD {
+                break;
+            }
+
+            let Some(candidate) = self.choose_nickel_candidate(terrain, half_extent, rng) else {
+                continue;
+            };
+
+            let band_width = NICKEL_BAND_WIDTH_MIN
+                + rng.next_unsigned() * (NICKEL_BAND_WIDTH_MAX - NICKEL_BAND_WIDTH_MIN);
+            let band_length = NICKEL_BAND_LENGTH_MIN
+                + rng.next_unsigned() * (NICKEL_BAND_LENGTH_MAX - NICKEL_BAND_LENGTH_MIN);
+            self.push(
+                stable_node_id(world_seed, row, col, 0x5000 + nickel_index as u32),
+                category::RAW_RESOURCE,
+                subtype::NICKEL_BAND,
+                candidate.x,
+                candidate.z,
+                band_width,
+                band_length,
+                cell_seed(world_seed, row, col, 0x2100 + nickel_index as u32),
+                encode_yaw_flag(candidate.yaw),
+            );
+        }
+    }
+
+    fn generate_coal_seams(
+        &mut self,
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) {
+        let target_count = COAL_TARGET_MIN
+            + (rng.next_unsigned() * (COAL_TARGET_MAX - COAL_TARGET_MIN + 1) as f32) as usize;
+        for coal_index in 0..target_count {
+            if self.count >= MAX_WORLD_NODES_PER_SHARD {
+                break;
+            }
+
+            let Some(candidate) = self.choose_coal_candidate(terrain, half_extent, rng) else {
+                continue;
+            };
+
+            let seam_length = COAL_SEAM_LENGTH_MIN
+                + rng.next_unsigned() * (COAL_SEAM_LENGTH_MAX - COAL_SEAM_LENGTH_MIN);
+            let seam_height = COAL_SEAM_HEIGHT_MIN
+                + rng.next_unsigned() * (COAL_SEAM_HEIGHT_MAX - COAL_SEAM_HEIGHT_MIN);
+            self.push(
+                stable_node_id(world_seed, row, col, 0x6000 + coal_index as u32),
+                category::RAW_RESOURCE,
+                subtype::COAL_SEAM,
+                candidate.x,
+                candidate.z,
+                seam_length,
+                seam_height,
+                cell_seed(world_seed, row, col, 0x2200 + coal_index as u32),
+                encode_yaw_flag(candidate.yaw),
             );
         }
     }
@@ -196,6 +314,100 @@ impl WorldNodes {
             if best_candidate
                 .as_ref()
                 .is_none_or(|best: &ScrapCandidate| candidate.score < best.score)
+            {
+                best_candidate = Some(candidate);
+            }
+        }
+
+        best_candidate
+    }
+
+    fn choose_nickel_candidate(
+        &self,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) -> Option<BandCandidate> {
+        let mut best_candidate = None;
+
+        for _ in 0..RESOURCE_CANDIDATES_PER_NODE {
+            let x = sample_inner_coord(rng, half_extent, NICKEL_EDGE_MARGIN);
+            let z = sample_inner_coord(rng, half_extent, NICKEL_EDGE_MARGIN);
+            let height = terrain.sample_height(x as f64, z as f64);
+            let slope = scrap_flatness_degrees(terrain, x, z);
+
+            if height > SEA_LEVEL + NICKEL_MAX_HEIGHT_ABOVE_SEA {
+                continue;
+            }
+            if slope > NICKEL_MAX_SLOPE_DEG {
+                continue;
+            }
+            if self.overlaps_category(x, z, NICKEL_MIN_SPACING, category::RAW_RESOURCE) {
+                continue;
+            }
+            if self.overlaps_category(x, z, NICKEL_SCRAP_CLEARANCE, category::METAL_SCRAP) {
+                continue;
+            }
+            if self.overlaps_category(x, z, NICKEL_STRUCTURE_CLEARANCE, category::STRUCTURE) {
+                continue;
+            }
+
+            let score = (height - SEA_LEVEL).abs() * NICKEL_HEIGHT_WEIGHT
+                + slope * NICKEL_SLOPE_WEIGHT
+                + if terrain.zone_at(x, z) == 0 { 0.0 } else { 6.0 };
+            let candidate = BandCandidate {
+                x,
+                z,
+                yaw: quantized_yaw_from_rng(rng),
+                score,
+            };
+            if best_candidate
+                .as_ref()
+                .is_none_or(|best: &BandCandidate| candidate.score < best.score)
+            {
+                best_candidate = Some(candidate);
+            }
+        }
+
+        best_candidate
+    }
+
+    fn choose_coal_candidate(
+        &self,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) -> Option<SeamCandidate> {
+        let mut best_candidate = None;
+
+        for _ in 0..RESOURCE_CANDIDATES_PER_NODE {
+            let x = sample_inner_coord(rng, half_extent, COAL_EDGE_MARGIN);
+            let z = sample_inner_coord(rng, half_extent, COAL_EDGE_MARGIN);
+            if self.overlaps_category(x, z, COAL_MIN_SPACING, category::RAW_RESOURCE) {
+                continue;
+            }
+            if self.overlaps_category(x, z, COAL_SCRAP_CLEARANCE, category::METAL_SCRAP) {
+                continue;
+            }
+            if self.overlaps_category(x, z, COAL_STRUCTURE_CLEARANCE, category::STRUCTURE) {
+                continue;
+            }
+
+            let Some(cliff) = cliff_base_signal(terrain, x, z) else {
+                continue;
+            };
+            let score = cliff.base_height_above_sea * COAL_HEIGHT_WEIGHT
+                + cliff.base_slope * COAL_BASE_SLOPE_WEIGHT
+                - cliff.rise * COAL_RISE_WEIGHT;
+            let candidate = SeamCandidate {
+                x,
+                z,
+                yaw: cliff.yaw,
+                score,
+            };
+            if best_candidate
+                .as_ref()
+                .is_none_or(|best: &SeamCandidate| candidate.score < best.score)
             {
                 best_candidate = Some(candidate);
             }
@@ -254,6 +466,27 @@ struct ScrapCandidate {
     score: f32,
 }
 
+struct BandCandidate {
+    x: f32,
+    z: f32,
+    yaw: f32,
+    score: f32,
+}
+
+struct SeamCandidate {
+    x: f32,
+    z: f32,
+    yaw: f32,
+    score: f32,
+}
+
+struct CliffBaseSignal {
+    rise: f32,
+    yaw: f32,
+    base_slope: f32,
+    base_height_above_sea: f32,
+}
+
 fn scrap_flatness_degrees(terrain: &Terrain, x: f32, z: f32) -> f32 {
     let h0 = terrain.sample_height(x as f64, z as f64);
     let hx = terrain.sample_height((x + SCRAP_FLATNESS_SAMPLE_EPS) as f64, z as f64);
@@ -288,4 +521,79 @@ fn sample_inner_coord(rng: &mut Rng, half_extent: f32, margin: f32) -> f32 {
 
 fn stable_node_id(world_seed: u32, row: i32, col: i32, local_index: u32) -> u32 {
     cell_seed(world_seed, row, col, 0x3000 ^ local_index)
+}
+
+fn quantized_yaw_from_rng(rng: &mut Rng) -> f32 {
+    rng.next_unsigned() * std::f32::consts::TAU
+}
+
+fn encode_yaw_flag(yaw: f32) -> u32 {
+    let normalized = yaw.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+    ((normalized * 255.0).round() as u32) & 0xff
+}
+
+fn cliff_base_signal(terrain: &Terrain, x: f32, z: f32) -> Option<CliffBaseSignal> {
+    let base_height = terrain.sample_height(x as f64, z as f64);
+    let base_height_above_sea = base_height - SEA_LEVEL;
+    if base_height_above_sea > COAL_BASE_HEIGHT_MAX_ABOVE_SEA {
+        return None;
+    }
+
+    let base_slope = scrap_flatness_degrees(terrain, x, z);
+    if base_slope > COAL_BASE_MAX_SLOPE_DEG {
+        return None;
+    }
+
+    let mut best: Option<(f32, f32, f32)> = None;
+    for step in 0..8 {
+        let angle = step as f32 / 8.0 * std::f32::consts::TAU;
+        let dir_x = angle.cos();
+        let dir_z = angle.sin();
+        let near_x = x + dir_x * 2.0;
+        let near_z = z + dir_z * 2.0;
+        let far_x = x + dir_x * 4.0;
+        let far_z = z + dir_z * 4.0;
+        let rise_near = terrain.sample_height(near_x as f64, near_z as f64) - base_height;
+        let rise_far = terrain.sample_height(far_x as f64, far_z as f64) - base_height;
+        let rise = rise_near.max(rise_far);
+        let face_slope = scrap_flatness_degrees(terrain, near_x, near_z)
+            .max(scrap_flatness_degrees(terrain, far_x, far_z));
+        if rise < COAL_MIN_CLIFF_RISE || face_slope < COAL_MIN_CLIFF_SLOPE_DEG {
+            continue;
+        }
+
+        if best
+            .as_ref()
+            .is_none_or(|current| rise > current.0)
+        {
+            best = Some((rise, near_x, near_z));
+        }
+    }
+
+    let Some((rise, sample_x, sample_z)) = best else {
+        return None;
+    };
+    let (normal_x, normal_z) = terrain_gradient_direction(terrain, sample_x, sample_z)
+        .unwrap_or_else(|| terrain_gradient_direction(terrain, x, z).unwrap_or((1.0, 0.0)));
+
+    Some(CliffBaseSignal {
+        rise,
+        yaw: normal_z.atan2(normal_x),
+        base_slope,
+        base_height_above_sea,
+    })
+}
+
+fn terrain_gradient_direction(terrain: &Terrain, x: f32, z: f32) -> Option<(f32, f32)> {
+    let hx0 = terrain.sample_height((x - COAL_GRADIENT_SAMPLE_EPS) as f64, z as f64);
+    let hx1 = terrain.sample_height((x + COAL_GRADIENT_SAMPLE_EPS) as f64, z as f64);
+    let hz0 = terrain.sample_height(x as f64, (z - COAL_GRADIENT_SAMPLE_EPS) as f64);
+    let hz1 = terrain.sample_height(x as f64, (z + COAL_GRADIENT_SAMPLE_EPS) as f64);
+    let gx = hx1 - hx0;
+    let gz = hz1 - hz0;
+    let magnitude = (gx * gx + gz * gz).sqrt();
+    if magnitude <= f32::EPSILON {
+        return None;
+    }
+    Some((gx / magnitude, gz / magnitude))
 }

@@ -25,7 +25,7 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 
 ## World And Encounter Systems Not Built
 
-- Deterministic shard-owned world-node generation foundation now exists in Rust/WASM with fixed-cap SoA arrays and placeholder structure plus scrap categories, but rendering, selection, mutable runtime state, and full building/resource gameplay are still not built.
+- Deterministic shard-owned world-node generation foundation now exists in Rust/WASM with fixed-cap SoA arrays, a placeholder structure slot, reduced scrap generation, and split raw-resource placement for nickel ice-sheet bands plus coal cliff-base seams, but selection, mutable runtime state, and full building/resource gameplay are still not built.
 - Building exploration loop (focus transitions, explored-floor progression rules, structure risk loops) is not complete.
 - Encounter-based multiplayer is deferred.
 

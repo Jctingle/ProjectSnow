@@ -1,7 +1,8 @@
 use super::*;
 use crate::rng::cell_seed;
 use crate::shard_ring::{slot_index, NEIGHBOR_OFFSETS};
-use crate::world_nodes::{category, SCRAP_MAX_SLOPE_DEG};
+use crate::terrain::SEA_LEVEL;
+use crate::world_nodes::{category, subtype, SCRAP_MAX_SLOPE_DEG};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -109,6 +110,23 @@ fn current_world_node_positions(sim: &Sim) -> Vec<(u8, f32, f32)> {
 
     (0..count)
         .map(|index| (categories[index], x[index], z[index]))
+        .collect()
+}
+
+fn current_world_node_details(sim: &Sim) -> Vec<(u8, u8, u32, f32, f32)> {
+    let count = sim.world_node_count();
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let categories = unsafe { std::slice::from_raw_parts(sim.world_node_categories_ptr(), count) };
+    let subtypes = unsafe { std::slice::from_raw_parts(sim.world_node_subtypes_ptr(), count) };
+    let flags = unsafe { std::slice::from_raw_parts(sim.world_node_flags_ptr(), count) };
+    let x = unsafe { std::slice::from_raw_parts(sim.world_node_x_ptr(), count) };
+    let z = unsafe { std::slice::from_raw_parts(sim.world_node_z_ptr(), count) };
+
+    (0..count)
+        .map(|index| (categories[index], subtypes[index], flags[index], x[index], z[index]))
         .collect()
 }
 
@@ -368,6 +386,62 @@ fn scrap_nodes_prefer_flat_and_separated_positions() {
                 "scrap node landed too close to structure placeholder: scrap=({ax:.3},{az:.3}) structure=({sx:.3},{sz:.3})"
             );
         }
+    }
+}
+
+#[test]
+fn raw_resources_split_into_flat_nickel_and_cliff_base_coal() {
+    let sim = build_sim();
+    let nodes = current_world_node_details(&sim);
+    let nickel: Vec<(u32, f32, f32)> = nodes
+        .iter()
+        .filter_map(|&(category_id, subtype_id, flags, x, z)| {
+            (category_id == category::RAW_RESOURCE && subtype_id == subtype::NICKEL_BAND)
+                .then_some((flags, x, z))
+        })
+        .collect();
+    let coal: Vec<(u32, f32, f32)> = nodes
+        .iter()
+        .filter_map(|&(category_id, subtype_id, flags, x, z)| {
+            (category_id == category::RAW_RESOURCE && subtype_id == subtype::COAL_SEAM)
+                .then_some((flags, x, z))
+        })
+        .collect();
+
+    assert!(!nickel.is_empty(), "expected at least one nickel band");
+    assert!(!coal.is_empty(), "expected at least one coal seam");
+
+    for &(_, x, z) in &nickel {
+        let height = sim.current.terrain.sample_height(x as f64, z as f64);
+        let slope = sim.current.terrain.slope_degrees_at(x, z);
+        assert!(
+            height <= SEA_LEVEL + 0.5,
+            "nickel should stay on the clamped ice sheet: height={height:.3} x={x:.3} z={z:.3}"
+        );
+        assert!(
+            slope <= 10.0,
+            "nickel should stay on flat terrain: slope={slope:.3} x={x:.3} z={z:.3}"
+        );
+    }
+
+    for &(flags, x, z) in &coal {
+        let yaw = (flags & 0xff) as f32 / 255.0 * std::f32::consts::TAU;
+        let normal_x = yaw.cos();
+        let normal_z = yaw.sin();
+        let base_height = sim.current.terrain.sample_height(x as f64, z as f64);
+        let near_height = sim
+            .current
+            .terrain
+            .sample_height((x + normal_x * 2.0) as f64, (z + normal_z * 2.0) as f64);
+        let far_height = sim
+            .current
+            .terrain
+            .sample_height((x + normal_x * 4.0) as f64, (z + normal_z * 4.0) as f64);
+        let rise = (near_height - base_height).max(far_height - base_height);
+        assert!(
+            rise >= 1.0,
+            "coal seam should face a nearby cliff rise: rise={rise:.3} x={x:.3} z={z:.3}"
+        );
     }
 }
 
