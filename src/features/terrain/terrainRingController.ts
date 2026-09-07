@@ -1,13 +1,29 @@
 import * as THREE from 'three';
 import {
+  getHeightmap,
+  getNeighborWorldNodeCategories,
+  getNeighborWorldNodeCount,
+  getNeighborWorldNodeDepthOrH,
+  getNeighborWorldNodeRadiusOrW,
+  getNeighborWorldNodeSeeds,
+  getNeighborWorldNodeX,
+  getNeighborWorldNodeZ,
   getNeighborHeightmap,
   getNeighborSlopemap,
   getSlopemap,
+  getWorldNodeCategories,
+  getWorldNodeCount,
+  getWorldNodeDepthOrH,
+  getWorldNodeRadiusOrW,
+  getWorldNodeSeeds,
+  getWorldNodeX,
+  getWorldNodeZ,
 } from '../../entityStore';
 import type { InputRouterController } from '../../input';
 import { isCameraFollowEnabled } from '../../input/camera';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from '../../sim/config';
 import type { Sim } from 'wasm-sim';
+import { createWorldNodeDebugGroup, disposeWorldNodeDebugGroup } from './worldNodeDebug';
 import { createTerrainMesh, createTerrainMeshFromGrid } from '../../world/terrain';
 import {
   createTierOverlayMesh,
@@ -32,9 +48,11 @@ export function createTerrainRingController(
 ): TerrainRingController {
   const tierOverlays = new Map<THREE.Mesh, THREE.Mesh>();
   const neighborMeshes = new Map<string, THREE.Mesh>();
+  const neighborNodeGroups = new Map<string, THREE.Group>();
   const keyOf = (dr: number, dc: number) => `${dr},${dc}`;
 
   let ground = createTerrainMesh(sim);
+  let groundNodeGroup = buildCurrentWorldNodeGroup();
   let slopeDebugOn = false;
   let prevShardRow = sim.current_shard_row();
   let prevShardCol = sim.current_shard_col();
@@ -58,6 +76,45 @@ export function createTerrainRingController(
     } else {
       material.dispose();
     }
+  };
+
+  function buildCurrentWorldNodeGroup(): THREE.Group {
+    return createWorldNodeDebugGroup({
+      count: getWorldNodeCount(),
+      categories: getWorldNodeCategories(),
+      x: getWorldNodeX(),
+      z: getWorldNodeZ(),
+      radiusOrW: getWorldNodeRadiusOrW(),
+      depthOrH: getWorldNodeDepthOrH(),
+      seeds: getWorldNodeSeeds(),
+      heightmap: getHeightmap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE),
+      heightMult: sim.height_mult(),
+    });
+  }
+
+  function buildNeighborWorldNodeGroup(dr: number, dc: number): THREE.Group | null {
+    const count = getNeighborWorldNodeCount(dr, dc);
+    const heightmap = getNeighborHeightmap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
+    if (!heightmap || count === 0) {
+      return null;
+    }
+
+    return createWorldNodeDebugGroup({
+      count,
+      categories: getNeighborWorldNodeCategories(dr, dc),
+      x: getNeighborWorldNodeX(dr, dc),
+      z: getNeighborWorldNodeZ(dr, dc),
+      radiusOrW: getNeighborWorldNodeRadiusOrW(dr, dc),
+      depthOrH: getNeighborWorldNodeDepthOrH(dr, dc),
+      seeds: getNeighborWorldNodeSeeds(dr, dc),
+      heightmap,
+      heightMult: sim.height_mult(),
+    });
+  }
+
+  const disposeWorldNodeGroup = (group: THREE.Group): void => {
+    disposeWorldNodeDebugGroup(group);
+    scene.remove(group);
   };
 
   const warnIfNeighborHeightmapLooksInvalid = (heightmap: Float32Array): void => {
@@ -92,13 +149,19 @@ export function createTerrainRingController(
   const rebuildGroundMesh = (): void => {
     disposeTerrainMesh(ground);
     for (const mesh of neighborMeshes.values()) disposeTerrainMesh(mesh);
+    disposeWorldNodeGroup(groundNodeGroup);
+    for (const group of neighborNodeGroups.values()) disposeWorldNodeGroup(group);
     neighborMeshes.clear();
+    neighborNodeGroups.clear();
     ground = createTerrainMesh(sim);
+    groundNodeGroup = buildCurrentWorldNodeGroup();
     scene.add(ground);
+    scene.add(groundNodeGroup);
     attachTierOverlay(ground, getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE));
   };
 
   scene.add(ground);
+  scene.add(groundNodeGroup);
   attachTierOverlay(ground, getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE));
 
   return {
@@ -134,10 +197,15 @@ export function createTerrainRingController(
 
         const crossKey = keyOf(crossDr, crossDc);
         const promoted = neighborMeshes.get(crossKey);
+        const promotedNodeGroup = neighborNodeGroups.get(crossKey);
         if (promoted) {
           neighborMeshes.delete(crossKey);
+          if (promotedNodeGroup) {
+            neighborNodeGroups.delete(crossKey);
+          }
 
           const rekeyed = new Map<string, THREE.Mesh>();
+          const rekeyedNodeGroups = new Map<string, THREE.Group>();
           for (const [key, mesh] of neighborMeshes) {
             const [dr, dc] = key.split(',').map(Number);
             const ndr = dr - crossDr;
@@ -148,16 +216,35 @@ export function createTerrainRingController(
               disposeTerrainMesh(mesh);
             }
           }
+          for (const [key, group] of neighborNodeGroups) {
+            const [dr, dc] = key.split(',').map(Number);
+            const ndr = dr - crossDr;
+            const ndc = dc - crossDc;
+            if (Math.abs(ndr) <= 1 && Math.abs(ndc) <= 1 && !(ndr === 0 && ndc === 0)) {
+              rekeyedNodeGroups.set(keyOf(ndr, ndc), group);
+            } else {
+              disposeWorldNodeGroup(group);
+            }
+          }
 
           rekeyed.set(keyOf(-crossDr, -crossDc), ground);
+          rekeyedNodeGroups.set(keyOf(-crossDr, -crossDc), groundNodeGroup);
           ground = promoted;
+          groundNodeGroup = promotedNodeGroup ?? buildCurrentWorldNodeGroup();
 
           neighborMeshes.clear();
           for (const [key, mesh] of rekeyed) neighborMeshes.set(key, mesh);
+          neighborNodeGroups.clear();
+          for (const [key, group] of rekeyedNodeGroups) neighborNodeGroups.set(key, group);
           ground.position.set(0, 0, 0);
+          groundNodeGroup.position.set(0, 0, 0);
           for (const [key, mesh] of neighborMeshes) {
             const [dr, dc] = key.split(',').map(Number);
             mesh.position.set(dc * GROUND_SIZE, 0, dr * GROUND_SIZE);
+          }
+          for (const [key, group] of neighborNodeGroups) {
+            const [dr, dc] = key.split(',').map(Number);
+            group.position.set(dc * GROUND_SIZE, 0, dr * GROUND_SIZE);
           }
         } else {
           rebuildGroundMesh();
@@ -169,6 +256,7 @@ export function createTerrainRingController(
         const key = keyOf(dr, dc);
         const ready = sim.neighbor_ready(dr, dc);
         const mesh = neighborMeshes.get(key);
+        const nodeGroup = neighborNodeGroups.get(key);
         if (ready && !mesh && !builtThisFrame) {
           const heightmap = getNeighborHeightmap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
           if (heightmap) {
@@ -180,11 +268,23 @@ export function createTerrainRingController(
             terrainMesh.position.z = dr * GROUND_SIZE;
             scene.add(terrainMesh);
             neighborMeshes.set(key, terrainMesh);
+            const group = buildNeighborWorldNodeGroup(dr, dc);
+            if (group) {
+              group.position.set(dc * GROUND_SIZE, 0, dr * GROUND_SIZE);
+              scene.add(group);
+              neighborNodeGroups.set(key, group);
+            }
             builtThisFrame = true;
           }
-        } else if (!ready && mesh) {
-          disposeTerrainMesh(mesh);
-          neighborMeshes.delete(key);
+        } else if (!ready) {
+          if (mesh) {
+            disposeTerrainMesh(mesh);
+            neighborMeshes.delete(key);
+          }
+          if (nodeGroup) {
+            disposeWorldNodeGroup(nodeGroup);
+            neighborNodeGroups.delete(key);
+          }
         }
       }
 

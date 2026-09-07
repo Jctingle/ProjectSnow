@@ -1,4 +1,5 @@
 use crate::terrain::Terrain;
+use crate::world_nodes::WorldNodes;
 use crate::Sim;
 
 pub(crate) const SHARD_TRIGGER_MARGIN: f32 = 12.0;
@@ -15,8 +16,20 @@ pub(crate) const NEIGHBOR_OFFSETS: [(i32, i32); 8] = [
 
 pub(crate) struct Shard {
     pub(crate) terrain: Terrain,
+    pub(crate) world_nodes: WorldNodes,
     pub(crate) row: i32,
     pub(crate) col: i32,
+}
+
+fn build_shard(sim: &Sim, row: i32, col: i32) -> Shard {
+    let terrain = sim.current.terrain.clone_params_for(sim.world_seed, row, col);
+    let world_nodes = WorldNodes::generate(sim.world_seed, row, col, &terrain);
+    Shard {
+        terrain,
+        world_nodes,
+        row,
+        col,
+    }
 }
 
 pub(crate) fn trigger_direction(ax: f32, az: f32, half_extent: f32) -> Option<(i32, i32)> {
@@ -109,11 +122,7 @@ impl Sim {
 
         let row = self.current.row + dr;
         let col = self.current.col + dc;
-        let terrain = self
-            .current
-            .terrain
-            .clone_params_for(self.world_seed, row, col);
-        self.neighbors[index] = Some(Shard { terrain, row, col });
+        self.neighbors[index] = Some(build_shard(self, row, col));
         true
     }
 
@@ -127,14 +136,7 @@ impl Sim {
             }
         }
 
-        Shard {
-            terrain: self
-                .current
-                .terrain
-                .clone_params_for(self.world_seed, row, col),
-            row,
-            col,
-        }
+        build_shard(self, row, col)
     }
 
     pub(crate) fn rekey_neighbors(&mut self, old_current: Shard) {

@@ -140,13 +140,23 @@ export function getNeighborAccessHillmap(
   return new Float32Array(memory.buffer, ptr, width * height);
 }
 
+export function getWorldNodeCount(): number {
+  return getSim().world_node_count();
+}
+
+export function getNeighborWorldNodeCount(dr: number, dc: number): number {
+  return getSim().neighbor_world_node_count(dr, dc);
+}
+
 type U8Cache = { view: Uint8Array; ptr: number; length: number } | null;
 type U32Cache = { view: Uint32Array; ptr: number; length: number } | null;
 type U16Cache = { view: Uint16Array; ptr: number; length: number } | null;
+type F32Cache = { view: Float32Array; ptr: number; length: number } | null;
 
 const EMPTY_U8 = new Uint8Array(0);
 const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_U16 = new Uint16Array(0);
+const EMPTY_F32 = new Float32Array(0);
 
 // Machine arrays are reallocated when a machine is added, so the pointer is
 // compared as well as the buffer identity.
@@ -186,6 +196,18 @@ function cacheU16(cache: U16Cache, ptr: number, length: number): U16Cache {
   return { view: new Uint16Array(memory.buffer, ptr, length), ptr, length };
 }
 
+function cacheF32(cache: F32Cache, ptr: number, length: number): F32Cache {
+  if (
+    cache &&
+    cache.ptr === ptr &&
+    cache.length === length &&
+    cache.view.buffer === memory.buffer
+  ) {
+    return cache;
+  }
+  return { view: new Float32Array(memory.buffer, ptr, length), ptr, length };
+}
+
 let cellKindCache: U8Cache = null;
 let faceXCache: U8Cache = null;
 let faceYCache: U8Cache = null;
@@ -215,6 +237,225 @@ let interiorUnitAssignedMachineIdsCache: U32Cache = null;
 let interiorUnitEquipmentSlotsCache: U32Cache = null;
 let interiorUnitInventoryCapacityCache: U16Cache = null;
 let interiorUnitInventoryLoadCache: U16Cache = null;
+let worldNodeIdsCache: U32Cache = null;
+let worldNodeCategoriesCache: U8Cache = null;
+let worldNodeSubtypesCache: U8Cache = null;
+let worldNodeXCache: F32Cache = null;
+let worldNodeZCache: F32Cache = null;
+let worldNodeRadiusOrWCache: F32Cache = null;
+let worldNodeDepthOrHCache: F32Cache = null;
+let worldNodeSeedsCache: U32Cache = null;
+let worldNodeFlagsCache: U32Cache = null;
+
+const neighborWorldNodeIdsCaches = new Map<string, U32Cache>();
+const neighborWorldNodeCategoriesCaches = new Map<string, U8Cache>();
+const neighborWorldNodeSubtypesCaches = new Map<string, U8Cache>();
+const neighborWorldNodeXCaches = new Map<string, F32Cache>();
+const neighborWorldNodeZCaches = new Map<string, F32Cache>();
+const neighborWorldNodeRadiusOrWCaches = new Map<string, F32Cache>();
+const neighborWorldNodeDepthOrHCaches = new Map<string, F32Cache>();
+const neighborWorldNodeSeedsCaches = new Map<string, U32Cache>();
+const neighborWorldNodeFlagsCaches = new Map<string, U32Cache>();
+
+function neighborKey(dr: number, dc: number): string {
+  return `${dr},${dc}`;
+}
+
+export function getWorldNodeIds(): Uint32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_U32;
+  worldNodeIdsCache = cacheU32(worldNodeIdsCache, getSim().world_node_ids_ptr(), count);
+  return worldNodeIdsCache!.view;
+}
+
+export function getWorldNodeCategories(): Uint8Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_U8;
+  worldNodeCategoriesCache = cacheU8(
+    worldNodeCategoriesCache,
+    getSim().world_node_categories_ptr(),
+    count,
+  );
+  return worldNodeCategoriesCache!.view;
+}
+
+export function getWorldNodeSubtypes(): Uint8Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_U8;
+  worldNodeSubtypesCache = cacheU8(
+    worldNodeSubtypesCache,
+    getSim().world_node_subtypes_ptr(),
+    count,
+  );
+  return worldNodeSubtypesCache!.view;
+}
+
+export function getWorldNodeX(): Float32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_F32;
+  worldNodeXCache = cacheF32(worldNodeXCache, getSim().world_node_x_ptr(), count);
+  return worldNodeXCache!.view;
+}
+
+export function getWorldNodeZ(): Float32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_F32;
+  worldNodeZCache = cacheF32(worldNodeZCache, getSim().world_node_z_ptr(), count);
+  return worldNodeZCache!.view;
+}
+
+export function getWorldNodeRadiusOrW(): Float32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_F32;
+  worldNodeRadiusOrWCache = cacheF32(
+    worldNodeRadiusOrWCache,
+    getSim().world_node_radius_or_w_ptr(),
+    count,
+  );
+  return worldNodeRadiusOrWCache!.view;
+}
+
+export function getWorldNodeDepthOrH(): Float32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_F32;
+  worldNodeDepthOrHCache = cacheF32(
+    worldNodeDepthOrHCache,
+    getSim().world_node_depth_or_h_ptr(),
+    count,
+  );
+  return worldNodeDepthOrHCache!.view;
+}
+
+export function getWorldNodeSeeds(): Uint32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_U32;
+  worldNodeSeedsCache = cacheU32(worldNodeSeedsCache, getSim().world_node_seeds_ptr(), count);
+  return worldNodeSeedsCache!.view;
+}
+
+export function getWorldNodeFlags(): Uint32Array {
+  const count = getWorldNodeCount();
+  if (count === 0) return EMPTY_U32;
+  worldNodeFlagsCache = cacheU32(worldNodeFlagsCache, getSim().world_node_flags_ptr(), count);
+  return worldNodeFlagsCache!.view;
+}
+
+export function getNeighborWorldNodeIds(dr: number, dc: number): Uint32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_U32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheU32(
+    neighborWorldNodeIdsCaches.get(key) ?? null,
+    getSim().neighbor_world_node_ids_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeIdsCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeCategories(dr: number, dc: number): Uint8Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_U8;
+  const key = neighborKey(dr, dc);
+  const cache = cacheU8(
+    neighborWorldNodeCategoriesCaches.get(key) ?? null,
+    getSim().neighbor_world_node_categories_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeCategoriesCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeSubtypes(dr: number, dc: number): Uint8Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_U8;
+  const key = neighborKey(dr, dc);
+  const cache = cacheU8(
+    neighborWorldNodeSubtypesCaches.get(key) ?? null,
+    getSim().neighbor_world_node_subtypes_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeSubtypesCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeX(dr: number, dc: number): Float32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_F32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheF32(
+    neighborWorldNodeXCaches.get(key) ?? null,
+    getSim().neighbor_world_node_x_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeXCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeZ(dr: number, dc: number): Float32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_F32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheF32(
+    neighborWorldNodeZCaches.get(key) ?? null,
+    getSim().neighbor_world_node_z_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeZCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeRadiusOrW(dr: number, dc: number): Float32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_F32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheF32(
+    neighborWorldNodeRadiusOrWCaches.get(key) ?? null,
+    getSim().neighbor_world_node_radius_or_w_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeRadiusOrWCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeDepthOrH(dr: number, dc: number): Float32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_F32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheF32(
+    neighborWorldNodeDepthOrHCaches.get(key) ?? null,
+    getSim().neighbor_world_node_depth_or_h_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeDepthOrHCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeSeeds(dr: number, dc: number): Uint32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_U32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheU32(
+    neighborWorldNodeSeedsCaches.get(key) ?? null,
+    getSim().neighbor_world_node_seeds_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeSeedsCaches.set(key, cache);
+  return cache!.view;
+}
+
+export function getNeighborWorldNodeFlags(dr: number, dc: number): Uint32Array {
+  const count = getNeighborWorldNodeCount(dr, dc);
+  if (count === 0) return EMPTY_U32;
+  const key = neighborKey(dr, dc);
+  const cache = cacheU32(
+    neighborWorldNodeFlagsCaches.get(key) ?? null,
+    getSim().neighbor_world_node_flags_ptr(dr, dc),
+    count,
+  );
+  neighborWorldNodeFlagsCaches.set(key, cache);
+  return cache!.view;
+}
 
 /** Cell kinds across the whole envelope. Changes only on hull expansion. */
 export function getApcCellKinds(): Uint8Array {

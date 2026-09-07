@@ -1,6 +1,7 @@
 use super::*;
 use crate::rng::cell_seed;
 use crate::shard_ring::{slot_index, NEIGHBOR_OFFSETS};
+use crate::world_nodes::{category, SCRAP_MAX_SLOPE_DEG};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -41,6 +42,74 @@ fn heightmap_bits(ptr: *const f32, indices: [usize; 3]) -> [u32; 3] {
         data[indices[1]].to_bits(),
         data[indices[2]].to_bits(),
     ]
+}
+
+fn world_node_signature(
+    count: usize,
+    ids_ptr: *const u32,
+    categories_ptr: *const u8,
+    subtypes_ptr: *const u8,
+    x_ptr: *const f32,
+    z_ptr: *const f32,
+) -> Vec<(u32, u8, u8, u32, u32)> {
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let ids = unsafe { std::slice::from_raw_parts(ids_ptr, count) };
+    let categories = unsafe { std::slice::from_raw_parts(categories_ptr, count) };
+    let subtypes = unsafe { std::slice::from_raw_parts(subtypes_ptr, count) };
+    let x = unsafe { std::slice::from_raw_parts(x_ptr, count) };
+    let z = unsafe { std::slice::from_raw_parts(z_ptr, count) };
+
+    (0..count)
+        .map(|index| {
+            (
+                ids[index],
+                categories[index],
+                subtypes[index],
+                x[index].to_bits(),
+                z[index].to_bits(),
+            )
+        })
+        .collect()
+}
+
+fn current_world_node_signature(sim: &Sim) -> Vec<(u32, u8, u8, u32, u32)> {
+    world_node_signature(
+        sim.world_node_count(),
+        sim.world_node_ids_ptr(),
+        sim.world_node_categories_ptr(),
+        sim.world_node_subtypes_ptr(),
+        sim.world_node_x_ptr(),
+        sim.world_node_z_ptr(),
+    )
+}
+
+fn neighbor_world_node_signature(sim: &Sim, dr: i32, dc: i32) -> Vec<(u32, u8, u8, u32, u32)> {
+    world_node_signature(
+        sim.neighbor_world_node_count(dr, dc),
+        sim.neighbor_world_node_ids_ptr(dr, dc),
+        sim.neighbor_world_node_categories_ptr(dr, dc),
+        sim.neighbor_world_node_subtypes_ptr(dr, dc),
+        sim.neighbor_world_node_x_ptr(dr, dc),
+        sim.neighbor_world_node_z_ptr(dr, dc),
+    )
+}
+
+fn current_world_node_positions(sim: &Sim) -> Vec<(u8, f32, f32)> {
+    let count = sim.world_node_count();
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let categories = unsafe { std::slice::from_raw_parts(sim.world_node_categories_ptr(), count) };
+    let x = unsafe { std::slice::from_raw_parts(sim.world_node_x_ptr(), count) };
+    let z = unsafe { std::slice::from_raw_parts(sim.world_node_z_ptr(), count) };
+
+    (0..count)
+        .map(|index| (categories[index], x[index], z[index]))
+        .collect()
 }
 
 fn assert_neighbor_coords(sim: &Sim, dr: i32, dc: i32, row: i32, col: i32) {
@@ -217,6 +286,89 @@ fn ring_rekey_determinism() {
         live_far_east, fresh_far_east_bits,
         "refilled far-east slot should match a fresh deterministic clone"
     );
+}
+
+#[test]
+fn current_world_nodes_are_deterministic_for_same_seed() {
+    let sim_a = build_sim();
+    let sim_b = build_sim();
+
+    assert_eq!(
+        current_world_node_signature(&sim_a),
+        current_world_node_signature(&sim_b),
+        "current shard world-node arrays should be deterministic for the same seed and shard"
+    );
+}
+
+#[test]
+fn promoted_neighbor_keeps_world_node_arrays_without_regeneration() {
+    let mut sim = build_sim();
+    let filled = tick_until(&mut sim, 2_000, all_neighbors_ready);
+    assert!(filled, "ring-1 never fully backfilled before world-node promotion check");
+
+    let east_before = neighbor_world_node_signature(&sim, 0, 1);
+    assert!(
+        !east_before.is_empty(),
+        "expected east neighbor to carry world nodes before promotion"
+    );
+
+    let he = sim.current.terrain.half_extent();
+    sim.set_apc_target(he + 30.0, 10.0);
+    let crossed = tick_until(&mut sim, 2_000, |s| s.current_shard_col() == 1);
+    assert!(crossed, "APC never crossed east during world-node promotion check");
+
+    assert_eq!(
+        east_before,
+        current_world_node_signature(&sim),
+        "promoted east neighbor should keep its world-node arrays when it becomes current"
+    );
+}
+
+#[test]
+fn scrap_nodes_prefer_flat_and_separated_positions() {
+    let sim = build_sim();
+    let nodes = current_world_node_positions(&sim);
+    let scraps: Vec<(f32, f32)> = nodes
+        .iter()
+        .filter_map(|&(category_id, x, z)| {
+            (category_id == category::METAL_SCRAP).then_some((x, z))
+        })
+        .collect();
+    let structures: Vec<(f32, f32)> = nodes
+        .iter()
+        .filter_map(|&(category_id, x, z)| {
+            (category_id == category::STRUCTURE).then_some((x, z))
+        })
+        .collect();
+
+    assert!(!scraps.is_empty(), "expected at least one scrap node in the current shard");
+
+    for &(x, z) in &scraps {
+        let slope = sim.current.terrain.slope_degrees_at(x, z);
+        assert!(
+            slope <= SCRAP_MAX_SLOPE_DEG,
+            "scrap node landed on too steep a slope: slope={slope:.3} x={x:.3} z={z:.3}"
+        );
+    }
+
+    for (index, &(ax, az)) in scraps.iter().enumerate() {
+        for &(bx, bz) in scraps.iter().skip(index + 1) {
+            let dx = ax - bx;
+            let dz = az - bz;
+            assert!(
+                dx * dx + dz * dz >= 12.0f32.powi(2),
+                "scrap nodes are packed too closely: a=({ax:.3},{az:.3}) b=({bx:.3},{bz:.3})"
+            );
+        }
+        for &(sx, sz) in &structures {
+            let dx = ax - sx;
+            let dz = az - sz;
+            assert!(
+                dx * dx + dz * dz >= 14.0f32.powi(2),
+                "scrap node landed too close to structure placeholder: scrap=({ax:.3},{az:.3}) structure=({sx:.3},{sz:.3})"
+            );
+        }
+    }
 }
 
 #[test]

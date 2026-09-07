@@ -8,12 +8,14 @@ mod rng;
 mod shard_ring;
 mod subgrid;
 mod terrain;
+mod world_nodes;
 
 #[cfg(test)]
 mod shard_ring_tests;
 
 use apc::Apc;
 use shard_ring::{crossing_direction, trigger_direction, Shard, NEIGHBOR_OFFSETS};
+use world_nodes::WorldNodes;
 
 #[wasm_bindgen]
 pub struct Sim {
@@ -55,9 +57,11 @@ impl Sim {
         );
         terrain.generate_heightmap(0, 0, terrain_half_extent * 2.0, terrain_half_extent * 2.0);
         terrain.regenerate(noise_seed, 0, 0);
+        let world_nodes = WorldNodes::generate(noise_seed, 0, 0, &terrain);
 
         let current = Shard {
             terrain,
+            world_nodes,
             row: 0,
             col: 0,
         };
@@ -103,36 +107,43 @@ impl Sim {
         self.current
             .terrain
             .regenerate(noise_seed, self.current.row, self.current.col);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_height_mult(&mut self, v: f32) {
         self.current.terrain.set_height_mult(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_crag_strength(&mut self, v: f32) {
         self.current.terrain.set_crag_strength(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_crag_freq(&mut self, v: f64) {
         self.current.terrain.set_crag_freq(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_sweep_scale(&mut self, v: f64) {
         self.current.terrain.set_sweep_scale(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_sweep_amp(&mut self, v: f32) {
         self.current.terrain.set_sweep_amp(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
     pub fn set_tier_height_scale(&mut self, v: f32) {
         self.current.terrain.set_tier_height_scale(v);
+        self.regenerate_current_world_nodes();
         self.clear_neighbors();
     }
 
@@ -271,11 +282,112 @@ impl Sim {
             .map_or(std::ptr::null(), |neighbor| neighbor.terrain.access_hillmap_ptr())
     }
 
+    pub fn world_node_count(&self) -> usize {
+        self.current.world_nodes.count()
+    }
+
+    pub fn world_node_ids_ptr(&self) -> *const u32 {
+        self.current.world_nodes.ids_ptr()
+    }
+
+    pub fn world_node_categories_ptr(&self) -> *const u8 {
+        self.current.world_nodes.categories_ptr()
+    }
+
+    pub fn world_node_subtypes_ptr(&self) -> *const u8 {
+        self.current.world_nodes.subtypes_ptr()
+    }
+
+    pub fn world_node_x_ptr(&self) -> *const f32 {
+        self.current.world_nodes.x_ptr()
+    }
+
+    pub fn world_node_z_ptr(&self) -> *const f32 {
+        self.current.world_nodes.z_ptr()
+    }
+
+    pub fn world_node_radius_or_w_ptr(&self) -> *const f32 {
+        self.current.world_nodes.radius_or_w_ptr()
+    }
+
+    pub fn world_node_depth_or_h_ptr(&self) -> *const f32 {
+        self.current.world_nodes.depth_or_h_ptr()
+    }
+
+    pub fn world_node_seeds_ptr(&self) -> *const u32 {
+        self.current.world_nodes.seeds_ptr()
+    }
+
+    pub fn world_node_flags_ptr(&self) -> *const u32 {
+        self.current.world_nodes.flags_ptr()
+    }
+
+    pub fn neighbor_world_node_count(&self, dr: i32, dc: i32) -> usize {
+        self.neighbor_shard(dr, dc)
+            .map_or(0, |neighbor| neighbor.world_nodes.count())
+    }
+
+    pub fn neighbor_world_node_ids_ptr(&self, dr: i32, dc: i32) -> *const u32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.ids_ptr())
+    }
+
+    pub fn neighbor_world_node_categories_ptr(&self, dr: i32, dc: i32) -> *const u8 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.categories_ptr())
+    }
+
+    pub fn neighbor_world_node_subtypes_ptr(&self, dr: i32, dc: i32) -> *const u8 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.subtypes_ptr())
+    }
+
+    pub fn neighbor_world_node_x_ptr(&self, dr: i32, dc: i32) -> *const f32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.x_ptr())
+    }
+
+    pub fn neighbor_world_node_z_ptr(&self, dr: i32, dc: i32) -> *const f32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.z_ptr())
+    }
+
+    pub fn neighbor_world_node_radius_or_w_ptr(&self, dr: i32, dc: i32) -> *const f32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.radius_or_w_ptr())
+    }
+
+    pub fn neighbor_world_node_depth_or_h_ptr(&self, dr: i32, dc: i32) -> *const f32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.depth_or_h_ptr())
+    }
+
+    pub fn neighbor_world_node_seeds_ptr(&self, dr: i32, dc: i32) -> *const u32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.seeds_ptr())
+    }
+
+    pub fn neighbor_world_node_flags_ptr(&self, dr: i32, dc: i32) -> *const u32 {
+        self.neighbor_shard(dr, dc)
+            .map_or(std::ptr::null(), |neighbor| neighbor.world_nodes.flags_ptr())
+    }
+
     pub fn current_shard_row(&self) -> i32 {
         self.current.row
     }
 
     pub fn current_shard_col(&self) -> i32 {
         self.current.col
+    }
+}
+
+impl Sim {
+    fn regenerate_current_world_nodes(&mut self) {
+        self.current.world_nodes = WorldNodes::generate(
+            self.world_seed,
+            self.current.row,
+            self.current.col,
+            &self.current.terrain,
+        );
     }
 }
