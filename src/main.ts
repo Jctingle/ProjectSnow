@@ -7,6 +7,7 @@ import {
 import { bootstrapApp } from './app/bootstrap';
 import { startGameLoop } from './app/gameLoop';
 import { createTerrainRingController } from './features/terrain/terrainRingController';
+import { createGenerationUiController } from './features/terrain/generationUiController';
 import { resetCameraPan, setCameraFollowEnabled, updateCameraFollow } from './input/camera';
 import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
@@ -22,6 +23,7 @@ import { APC_GRID_CELL_SIZE } from './sim/config';
 import { regenerateTerrain, refreshHeightmap } from './sim/tick';
 import { createDevPanel } from './ui/devPanel';
 import { createUnitRosterPanel } from './ui/unitRosterPanel';
+import { registerTopBarChoiceSet } from './ui/windowToggleBar';
 import { createApcMesh, resizeApcMesh, setApcGridVisible, setApcHullVisible } from './world/apc';
 import { createApcInteriorView } from './world/apcInterior';
 
@@ -29,6 +31,7 @@ const { scene, camera, renderer, composer, tiltShift, sim } = await bootstrapApp
 
 let apcGridOn = false;
 const terrainRing = createTerrainRingController(scene, sim);
+const generationUi = createGenerationUiController({ sim });
 
 const inputRouter = initInputRouter(camera, renderer, scene);
 
@@ -50,6 +53,14 @@ const unitRosterPanel = createUnitRosterPanel(
 );
 const blizzardMask = createBlizzardMask();
 scene.add(blizzardMask.mesh);
+let devModeRestore:
+  | {
+      apcSpeed: number;
+      passableMaxDeg: number;
+      cliffThresholdDeg: number;
+      blizzardVisible: boolean;
+    }
+  | null = null;
 
 const regenButton = document.createElement('button');
 regenButton.textContent = 'Regenerate Terrain';
@@ -89,7 +100,7 @@ attachFocusOrbitControls(renderer.domElement);
 attachFocusFloorControls(renderer.domElement);
 attachInteriorPicking(renderer.domElement, camera, apcInteriorView);
 
-createDevPanel(
+const devPanel = createDevPanel(
   sim,
   () => {
     refreshHeightmap();
@@ -97,6 +108,9 @@ createDevPanel(
   },
   (checked) => {
     terrainRing.setSlopeDebugVisible(checked);
+  },
+  (visible) => {
+    generationUi.setSettlementProfilesVisible(visible);
   },
   (followActive) => {
     setCameraFollowEnabled(followActive);
@@ -149,6 +163,43 @@ createDevPanel(
   },
 );
 
+registerTopBarChoiceSet({
+  id: 'run-mode',
+  label: 'Mode',
+  defaultValue: 'normal',
+  options: [
+    { value: 'normal', label: 'Normal' },
+    { value: 'dev-mode', label: 'Dev Mode' },
+  ],
+  onValueChange: (value) => {
+    if (value === 'dev-mode') {
+      if (devModeRestore) return;
+      const slopeThresholds = devPanel.getSlopeThresholds();
+      devModeRestore = {
+        apcSpeed: devPanel.getApcSpeed(),
+        passableMaxDeg: slopeThresholds.passableMaxDeg,
+        cliffThresholdDeg: slopeThresholds.cliffThresholdDeg,
+        blizzardVisible: blizzardMask.isVisible(),
+      };
+      devPanel.setDevModeActive(true);
+      devPanel.setApcSpeed(1.0);
+      devPanel.setSlopeThresholds(100, 100);
+      blizzardMask.setVisible(false);
+      return;
+    }
+
+    if (!devModeRestore) return;
+    devPanel.setApcSpeed(devModeRestore.apcSpeed);
+    devPanel.setSlopeThresholds(
+      devModeRestore.passableMaxDeg,
+      devModeRestore.cliffThresholdDeg,
+    );
+    blizzardMask.setVisible(devModeRestore.blizzardVisible);
+    devPanel.setDevModeActive(false);
+    devModeRestore = null;
+  },
+});
+
 startGameLoop({
   camera,
   composer,
@@ -161,6 +212,7 @@ startGameLoop({
   inputRouter,
   terrainRing,
   focusUi,
+  generationUi,
 });
 
 window.addEventListener('resize', () => {

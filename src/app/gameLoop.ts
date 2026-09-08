@@ -10,6 +10,7 @@ import { setApcGridFocus, syncApcMesh } from '../world/apc';
 import type { ApcInteriorView } from '../world/apcInterior';
 import type { TerrainRingController } from '../features/terrain/terrainRingController';
 import type { FocusUiController } from '../features/focus/focusUiController';
+import type { GenerationUiController } from '../features/terrain/generationUiController';
 
 type SyncController = {
   sync(): void;
@@ -39,6 +40,7 @@ type GameLoopOptions = {
   inputRouter: InputRouterController;
   terrainRing: TerrainRingController;
   focusUi: FocusUiController;
+  generationUi: GenerationUiController;
 };
 
 export function startGameLoop(options: GameLoopOptions): void {
@@ -54,6 +56,7 @@ export function startGameLoop(options: GameLoopOptions): void {
     inputRouter,
     terrainRing,
     focusUi,
+    generationUi,
   } = options;
 
   const focusTarget = new THREE.Vector3();
@@ -105,6 +108,7 @@ export function startGameLoop(options: GameLoopOptions): void {
       updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
     }
     focusUi.updateSubfocusExitButton();
+    generationUi.update();
     inputRouter.update();
 
     composer.render();

@@ -10,15 +10,40 @@ type WindowToggleController = {
   isVisible(): boolean;
 };
 
+type ChoiceOption = {
+  value: string;
+  label: string;
+};
+
+type TopBarChoiceSetOptions = {
+  id: string;
+  label: string;
+  defaultValue: string;
+  options: ChoiceOption[];
+  onValueChange: (value: string) => void;
+};
+
+type TopBarChoiceSetController = {
+  setValue(value: string): void;
+  getValue(): string;
+};
+
 type RegisteredToggle = {
   id: string;
   input: HTMLInputElement;
   onVisibleChange: (visible: boolean) => void;
 };
 
+type RegisteredChoiceSet = {
+  id: string;
+  inputs: Map<string, HTMLInputElement>;
+  onValueChange: (value: string) => void;
+};
+
 let barRoot: HTMLDivElement | null = null;
 let barRow: HTMLDivElement | null = null;
 const toggles = new Map<string, RegisteredToggle>();
+const choiceSets = new Map<string, RegisteredChoiceSet>();
 
 function ensureBar(): HTMLDivElement {
   if (barRoot) return barRoot;
@@ -94,6 +119,87 @@ export function registerWindowToggle(options: WindowToggleOptions): WindowToggle
     },
     isVisible() {
       return input.checked;
+    },
+  };
+}
+
+export function registerTopBarChoiceSet(options: TopBarChoiceSetOptions): TopBarChoiceSetController {
+  ensureBar();
+  if (!barRow) throw new Error('window toggle bar row was not created');
+
+  const existing = choiceSets.get(options.id);
+  if (existing) {
+    return {
+      setValue(value: string) {
+        const input = existing.inputs.get(value);
+        if (!input) return;
+        input.checked = true;
+        existing.onValueChange(value);
+      },
+      getValue() {
+        for (const [value, input] of existing.inputs) {
+          if (input.checked) return value;
+        }
+        return options.defaultValue;
+      },
+    };
+  }
+
+  const group = document.createElement('div');
+  group.style.cssText =
+    'display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.16); background:rgba(255,255,255,0.04);';
+
+  const title = document.createElement('span');
+  title.textContent = options.label;
+  title.style.cssText = 'font-weight:700; letter-spacing:0.03em; margin-right:2px;';
+  group.appendChild(title);
+
+  const name = `top-bar-choice-${options.id}`;
+  const inputs = new Map<string, HTMLInputElement>();
+
+  for (const option of options.options) {
+    const row = document.createElement('label');
+    row.style.cssText =
+      'display:inline-flex; align-items:center; gap:6px; padding:2px 4px; border-radius:4px; cursor:pointer; user-select:none;';
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = name;
+    input.value = option.value;
+    input.checked = option.value === options.defaultValue;
+
+    const text = document.createElement('span');
+    text.textContent = option.label;
+    row.appendChild(input);
+    row.appendChild(text);
+    input.addEventListener('change', () => {
+      if (input.checked) options.onValueChange(option.value);
+    });
+    group.appendChild(row);
+    inputs.set(option.value, input);
+  }
+
+  barRow.appendChild(group);
+  const registered: RegisteredChoiceSet = {
+    id: options.id,
+    inputs,
+    onValueChange: options.onValueChange,
+  };
+  choiceSets.set(options.id, registered);
+  options.onValueChange(options.defaultValue);
+
+  return {
+    setValue(value: string) {
+      const input = inputs.get(value);
+      if (!input) return;
+      input.checked = true;
+      options.onValueChange(value);
+    },
+    getValue() {
+      for (const [value, input] of inputs) {
+        if (input.checked) return value;
+      }
+      return options.defaultValue;
     },
   };
 }

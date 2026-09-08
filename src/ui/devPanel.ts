@@ -30,6 +30,14 @@ import type { BlizzardMaskSettings } from '../render/blizzardMask';
 import type { TiltShiftSettings } from '../render/tiltShiftPass';
 import { registerWindowToggle } from './windowToggleBar';
 
+export type DevPanelController = {
+  getApcSpeed(): number;
+  setApcSpeed(value: number): void;
+  getSlopeThresholds(): { passableMaxDeg: number; cliffThresholdDeg: number };
+  setSlopeThresholds(passableMaxDeg: number, cliffThresholdDeg: number): void;
+  setDevModeActive(active: boolean): void;
+};
+
 interface FieldConfig {
   label: string;
   min: number;
@@ -82,6 +90,7 @@ export function createDevPanel(
   sim: Sim,
   onChange: () => void,
   onSlopeDebugToggle?: (checked: boolean) => void,
+  onSettlementProfilesToggle?: (visible: boolean) => void,
   onCameraFollowToggle?: (followActive: boolean) => void,
   onCenterOnApc?: () => void,
   onBlizzardSettingsChange?: (settings: BlizzardMaskSettings) => void,
@@ -93,12 +102,13 @@ export function createDevPanel(
   onApcInteriorLabelsToggle?: (visible: boolean) => void,
   onApcHullToggle?: (visible: boolean) => void,
   onAddApcInteriorUnit?: () => void,
-): void {
+): DevPanelController {
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
   const slopeSettings = {
     passableMaxDeg: SLOPE_PASSABLE_MAX_DEG,
     cliffThresholdDeg: SLOPE_CLIFF_THRESHOLD_DEG,
   };
+  let currentApcSpeed = APC_SPEED_DEFAULT;
 
   const panel = document.createElement('div');
   panel.style.cssText =
@@ -211,9 +221,10 @@ export function createDevPanel(
   };
   const terrainPanel = createTab('terrain', 'Terrain');
   const blizzardPanel = createTab('blizzard', 'Blizzard');
+  const generationPanel = createTab('generation', 'Generation');
   const slopeThresholdPanel = createTab('slope', 'Slope');
   const tiltShiftPanel = createTab('tilt-shift', 'Tilt-shift');
-  const testingPanel = createTab('testing', 'TESTING');
+  const testingPanel = createTab('testing', 'APC');
   panel.appendChild(tabRow);
   panel.appendChild(tabContent);
   showTab(activeTab);
@@ -233,6 +244,45 @@ export function createDevPanel(
   debugConsoleCheckbox.addEventListener('change', () => {
     setDebugInputLogging(debugConsoleCheckbox.checked);
     onDebugConsoleToggle?.(debugConsoleCheckbox.checked);
+  });
+
+  const generationVisibilityBlock = document.createElement('div');
+  generationVisibilityBlock.style.cssText =
+    'display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:8px 10px; border-radius:4px; color:#fff;';
+  const generationHeader = document.createElement('span');
+  generationHeader.textContent = 'Settlement profiles';
+  generationVisibilityBlock.appendChild(generationHeader);
+
+  const generationRadioName = 'generation-settlement-visibility';
+  const generationOffRow = document.createElement('label');
+  generationOffRow.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer;';
+  const generationOffRadio = document.createElement('input');
+  generationOffRadio.type = 'radio';
+  generationOffRadio.name = generationRadioName;
+  generationOffRadio.checked = true;
+  const generationOffText = document.createElement('span');
+  generationOffText.textContent = 'Hidden';
+  generationOffRow.appendChild(generationOffRadio);
+  generationOffRow.appendChild(generationOffText);
+  generationVisibilityBlock.appendChild(generationOffRow);
+
+  const generationOnRow = document.createElement('label');
+  generationOnRow.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer;';
+  const generationOnRadio = document.createElement('input');
+  generationOnRadio.type = 'radio';
+  generationOnRadio.name = generationRadioName;
+  const generationOnText = document.createElement('span');
+  generationOnText.textContent = 'Visible';
+  generationOnRow.appendChild(generationOnRadio);
+  generationOnRow.appendChild(generationOnText);
+  generationVisibilityBlock.appendChild(generationOnRow);
+  generationPanel.appendChild(generationVisibilityBlock);
+
+  generationOffRadio.addEventListener('change', () => {
+    if (generationOffRadio.checked) onSettlementProfilesToggle?.(false);
+  });
+  generationOnRadio.addEventListener('change', () => {
+    if (generationOnRadio.checked) onSettlementProfilesToggle?.(true);
   });
 
   function createSliderRow(
@@ -280,6 +330,34 @@ export function createDevPanel(
     return { slider, valueSpan };
   }
 
+  let apcSpeedSlider: HTMLInputElement | null = null;
+  let apcSpeedValueSpan: HTMLSpanElement | null = null;
+  let passableSlider: HTMLInputElement | null = null;
+  let passableValueSpan: HTMLSpanElement | null = null;
+  let cliffSlider: HTMLInputElement | null = null;
+  let cliffValueSpan: HTMLSpanElement | null = null;
+
+  const applyApcSpeedValue = (value: number): void => {
+    currentApcSpeed = value;
+    sim.set_apc_speed(value);
+    if (apcSpeedSlider) apcSpeedSlider.value = String(value);
+    if (apcSpeedValueSpan) apcSpeedValueSpan.textContent = value.toFixed(4);
+  };
+
+  const applySlopeThresholdValues = (
+    passableMaxDeg: number,
+    cliffThresholdDeg: number,
+  ): void => {
+    slopeSettings.passableMaxDeg = passableMaxDeg;
+    slopeSettings.cliffThresholdDeg = cliffThresholdDeg;
+    setSlopeThresholds(passableMaxDeg, cliffThresholdDeg);
+    sim.set_apc_cliff_threshold_deg(cliffThresholdDeg);
+    if (passableSlider) passableSlider.value = String(passableMaxDeg);
+    if (cliffSlider) cliffSlider.value = String(cliffThresholdDeg);
+    if (passableValueSpan) passableValueSpan.textContent = passableMaxDeg.toFixed(4);
+    if (cliffValueSpan) cliffValueSpan.textContent = cliffThresholdDeg.toFixed(4);
+  };
+
   for (const field of FIELDS) {
     createSliderRow(
       {
@@ -293,19 +371,21 @@ export function createDevPanel(
     );
   }
 
-  createSliderRow(
+  const apcSpeedRow = createSliderRow(
     {
       label: 'APC_SPEED',
       min: 0.0005,
-      max: 0.1,
+      max: 1.0,
       step: 0.0005,
       default: APC_SPEED_DEFAULT,
       onInput: (value: number) => {
-        sim.set_apc_speed(value);
+        applyApcSpeedValue(value);
       },
     },
     testingPanel,
   );
+  apcSpeedSlider = apcSpeedRow.slider;
+  apcSpeedValueSpan = apcSpeedRow.valueSpan;
 
   const apcCellCounts = {
     x: APC_CELLS_DEFAULT_X,
@@ -490,14 +570,11 @@ export function createDevPanel(
     );
   }
 
-  let passableSlider: HTMLInputElement | null = null;
-  let cliffSlider: HTMLInputElement | null = null;
-
   const passableRow = createSliderRow(
     {
       label: 'SLOPE_PASSABLE_MAX_DEG',
       min: 0,
-      max: 90,
+      max: 100,
       step: 1,
       default: slopeSettings.passableMaxDeg,
       onInput: (value: number) => {
@@ -505,19 +582,19 @@ export function createDevPanel(
           if (passableSlider) passableSlider.value = String(slopeSettings.passableMaxDeg);
           return;
         }
-        slopeSettings.passableMaxDeg = value;
-        setSlopeThresholds(slopeSettings.passableMaxDeg, slopeSettings.cliffThresholdDeg);
+        applySlopeThresholdValues(value, slopeSettings.cliffThresholdDeg);
       },
     },
     slopeThresholdPanel,
   );
   passableSlider = passableRow.slider;
+  passableValueSpan = passableRow.valueSpan;
 
   const cliffRow = createSliderRow(
     {
       label: 'SLOPE_CLIFF_THRESHOLD_DEG',
       min: 0,
-      max: 90,
+      max: 100,
       step: 1,
       default: slopeSettings.cliffThresholdDeg,
       onInput: (value: number) => {
@@ -525,14 +602,13 @@ export function createDevPanel(
           if (cliffSlider) cliffSlider.value = String(slopeSettings.cliffThresholdDeg);
           return;
         }
-        slopeSettings.cliffThresholdDeg = value;
-        setSlopeThresholds(slopeSettings.passableMaxDeg, slopeSettings.cliffThresholdDeg);
-        sim.set_apc_cliff_threshold_deg(value);
+        applySlopeThresholdValues(slopeSettings.passableMaxDeg, value);
       },
     },
     slopeThresholdPanel,
   );
   cliffSlider = cliffRow.slider;
+  cliffValueSpan = cliffRow.valueSpan;
 
   const tiltShiftFields: TiltShiftFieldConfig[] = [
     {
@@ -579,4 +655,27 @@ export function createDevPanel(
   }
 
   document.body.appendChild(panel);
+
+  return {
+    getApcSpeed() {
+      return currentApcSpeed;
+    },
+    setApcSpeed(value: number) {
+      applyApcSpeedValue(value);
+    },
+    getSlopeThresholds() {
+      return {
+        passableMaxDeg: slopeSettings.passableMaxDeg,
+        cliffThresholdDeg: slopeSettings.cliffThresholdDeg,
+      };
+    },
+    setSlopeThresholds(passableMaxDeg: number, cliffThresholdDeg: number) {
+      applySlopeThresholdValues(passableMaxDeg, cliffThresholdDeg);
+    },
+    setDevModeActive(active: boolean) {
+      if (apcSpeedSlider) apcSpeedSlider.disabled = active;
+      if (passableSlider) passableSlider.disabled = active;
+      if (cliffSlider) cliffSlider.disabled = active;
+    },
+  };
 }

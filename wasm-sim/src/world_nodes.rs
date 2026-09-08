@@ -5,6 +5,16 @@ pub(crate) const MAX_WORLD_NODES_PER_SHARD: usize = 32;
 const LAYER_WORLD_NODES: u32 = 2;
 const STRUCTURE_EDGE_MARGIN: f32 = 10.0;
 const STRUCTURE_ATTEMPTS: usize = 10;
+const STRUCTURE_SPAWN_CHANCE: f32 = 0.25;
+const SETTLEMENT_HALF_WIDTH: f32 = 4.0;
+const SETTLEMENT_HALF_DEPTH: f32 = 4.0;
+const SETTLEMENT_SAMPLE_SCALE: f32 = 0.82;
+const SETTLEMENT_FLOAT_WELL_DEPTH: f32 = 2.4;
+const SETTLEMENT_RELIEF_MAX: f32 = 4.0;
+const SETTLEMENT_EMBEDDED_FLOAT_WELL_MIN: f32 = 0.38;
+const SETTLEMENT_EMBEDDED_ATTACHMENT_MIN: f32 = 0.58;
+const SETTLEMENT_PERCHED_ATTACHMENT_MAX: f32 = 0.34;
+const SETTLEMENT_PERCHED_RELIEF_MIN: f32 = 0.35;
 const SCRAP_CANDIDATES_PER_NODE: usize = 12;
 const RESOURCE_CANDIDATES_PER_NODE: usize = 20;
 const SCRAP_RADIUS_MIN: f32 = 2.0;
@@ -19,8 +29,8 @@ const SCRAP_MIN_SPACING: f32 = SCRAP_RADIUS_MAX * 2.4;
 const SCRAP_FLATNESS_SAMPLE_EPS: f32 = 1.0;
 const SCRAP_TARGET_MIN: usize = 1;
 const SCRAP_TARGET_MAX: usize = 2;
-const NICKEL_TARGET_MIN: usize = 2;
-const NICKEL_TARGET_MAX: usize = 4;
+const NICKEL_TARGET_MIN: usize = 1;
+const NICKEL_TARGET_MAX: usize = 2;
 const NICKEL_EDGE_MARGIN: f32 = 8.0;
 const NICKEL_MIN_SPACING: f32 = 12.0;
 const NICKEL_MAX_SLOPE_DEG: f32 = 8.0;
@@ -33,24 +43,6 @@ const NICKEL_BAND_WIDTH_MIN: f32 = 5.0;
 const NICKEL_BAND_WIDTH_MAX: f32 = 10.0;
 const NICKEL_BAND_LENGTH_MIN: f32 = 2.0;
 const NICKEL_BAND_LENGTH_MAX: f32 = 4.5;
-const COAL_TARGET_MIN: usize = 2;
-const COAL_TARGET_MAX: usize = 4;
-const COAL_EDGE_MARGIN: f32 = 8.0;
-const COAL_MIN_SPACING: f32 = 14.0;
-const COAL_BASE_MAX_SLOPE_DEG: f32 = 30.0;
-const COAL_MIN_CLIFF_RISE: f32 = 1.25;
-const COAL_MIN_CLIFF_SLOPE_DEG: f32 = 34.0;
-const COAL_BASE_HEIGHT_MAX_ABOVE_SEA: f32 = 2.5;
-const COAL_RISE_WEIGHT: f32 = 4.0;
-const COAL_BASE_SLOPE_WEIGHT: f32 = 0.65;
-const COAL_HEIGHT_WEIGHT: f32 = 1.0;
-const COAL_SCRAP_CLEARANCE: f32 = 12.0;
-const COAL_STRUCTURE_CLEARANCE: f32 = 16.0;
-const COAL_SEAM_LENGTH_MIN: f32 = 4.0;
-const COAL_SEAM_LENGTH_MAX: f32 = 8.5;
-const COAL_SEAM_HEIGHT_MIN: f32 = 1.6;
-const COAL_SEAM_HEIGHT_MAX: f32 = 3.2;
-const COAL_GRADIENT_SAMPLE_EPS: f32 = 0.75;
 pub(crate) const SCRAP_MAX_SLOPE_DEG: f32 = 18.0;
 
 pub(crate) mod category {
@@ -60,10 +52,11 @@ pub(crate) mod category {
 }
 
 pub(crate) mod subtype {
-    pub(crate) const RESERVED: u8 = 0;
+    pub(crate) const SETTLEMENT_BALANCED: u8 = 0;
     pub(crate) const SCRAP_FIELD: u8 = 1;
     pub(crate) const NICKEL_BAND: u8 = 2;
-    pub(crate) const COAL_SEAM: u8 = 3;
+    pub(crate) const SETTLEMENT_PERCHED: u8 = 3;
+    pub(crate) const SETTLEMENT_EMBEDDED: u8 = 4;
 }
 
 pub(crate) struct WorldNodes {
@@ -85,10 +78,9 @@ impl WorldNodes {
         let mut rng = Rng::new(cell_seed(world_seed, row, col, LAYER_WORLD_NODES));
         let half_extent = terrain.half_extent();
 
-        nodes.generate_reserved_structure_slot(world_seed, row, col, terrain, half_extent, &mut rng);
+        nodes.generate_settlement_slot(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes.generate_scrap_fields(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes.generate_nickel_bands(world_seed, row, col, terrain, half_extent, &mut rng);
-        nodes.generate_coal_seams(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes
     }
 
@@ -132,7 +124,7 @@ impl WorldNodes {
         self.flags.as_ptr()
     }
 
-    fn generate_reserved_structure_slot(
+    fn generate_settlement_slot(
         &mut self,
         world_seed: u32,
         row: i32,
@@ -141,23 +133,28 @@ impl WorldNodes {
         half_extent: f32,
         rng: &mut Rng,
     ) {
+        if rng.next_unsigned() > STRUCTURE_SPAWN_CHANCE {
+            return;
+        }
+
         for attempt in 0..STRUCTURE_ATTEMPTS {
             let x = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN);
             let z = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN);
             if !terrain.is_structure_viable(x, z) {
                 continue;
             }
+            let profile = classify_settlement_profile(terrain, x, z, SETTLEMENT_HALF_WIDTH, SETTLEMENT_HALF_DEPTH);
 
             self.push(
                 stable_node_id(world_seed, row, col, attempt as u32),
                 category::STRUCTURE,
-                subtype::RESERVED,
+                profile.subtype,
                 x,
                 z,
-                4.0,
-                4.0,
+                SETTLEMENT_HALF_WIDTH,
+                SETTLEMENT_HALF_DEPTH,
                 cell_seed(world_seed, row, col, 0x1000 + attempt as u32),
-                0,
+                encode_settlement_flags(profile.float_well, profile.relief_norm, profile.attachment),
             );
             break;
         }
@@ -235,44 +232,6 @@ impl WorldNodes {
                 band_width,
                 band_length,
                 cell_seed(world_seed, row, col, 0x2100 + nickel_index as u32),
-                encode_yaw_flag(candidate.yaw),
-            );
-        }
-    }
-
-    fn generate_coal_seams(
-        &mut self,
-        world_seed: u32,
-        row: i32,
-        col: i32,
-        terrain: &Terrain,
-        half_extent: f32,
-        rng: &mut Rng,
-    ) {
-        let target_count = COAL_TARGET_MIN
-            + (rng.next_unsigned() * (COAL_TARGET_MAX - COAL_TARGET_MIN + 1) as f32) as usize;
-        for coal_index in 0..target_count {
-            if self.count >= MAX_WORLD_NODES_PER_SHARD {
-                break;
-            }
-
-            let Some(candidate) = self.choose_coal_candidate(terrain, half_extent, rng) else {
-                continue;
-            };
-
-            let seam_length = COAL_SEAM_LENGTH_MIN
-                + rng.next_unsigned() * (COAL_SEAM_LENGTH_MAX - COAL_SEAM_LENGTH_MIN);
-            let seam_height = COAL_SEAM_HEIGHT_MIN
-                + rng.next_unsigned() * (COAL_SEAM_HEIGHT_MAX - COAL_SEAM_HEIGHT_MIN);
-            self.push(
-                stable_node_id(world_seed, row, col, 0x6000 + coal_index as u32),
-                category::RAW_RESOURCE,
-                subtype::COAL_SEAM,
-                candidate.x,
-                candidate.z,
-                seam_length,
-                seam_height,
-                cell_seed(world_seed, row, col, 0x2200 + coal_index as u32),
                 encode_yaw_flag(candidate.yaw),
             );
         }
@@ -372,50 +331,6 @@ impl WorldNodes {
         best_candidate
     }
 
-    fn choose_coal_candidate(
-        &self,
-        terrain: &Terrain,
-        half_extent: f32,
-        rng: &mut Rng,
-    ) -> Option<SeamCandidate> {
-        let mut best_candidate = None;
-
-        for _ in 0..RESOURCE_CANDIDATES_PER_NODE {
-            let x = sample_inner_coord(rng, half_extent, COAL_EDGE_MARGIN);
-            let z = sample_inner_coord(rng, half_extent, COAL_EDGE_MARGIN);
-            if self.overlaps_category(x, z, COAL_MIN_SPACING, category::RAW_RESOURCE) {
-                continue;
-            }
-            if self.overlaps_category(x, z, COAL_SCRAP_CLEARANCE, category::METAL_SCRAP) {
-                continue;
-            }
-            if self.overlaps_category(x, z, COAL_STRUCTURE_CLEARANCE, category::STRUCTURE) {
-                continue;
-            }
-
-            let Some(cliff) = cliff_base_signal(terrain, x, z) else {
-                continue;
-            };
-            let score = cliff.base_height_above_sea * COAL_HEIGHT_WEIGHT
-                + cliff.base_slope * COAL_BASE_SLOPE_WEIGHT
-                - cliff.rise * COAL_RISE_WEIGHT;
-            let candidate = SeamCandidate {
-                x,
-                z,
-                yaw: cliff.yaw,
-                score,
-            };
-            if best_candidate
-                .as_ref()
-                .is_none_or(|best: &SeamCandidate| candidate.score < best.score)
-            {
-                best_candidate = Some(candidate);
-            }
-        }
-
-        best_candidate
-    }
-
     fn overlaps_category(&self, x: f32, z: f32, min_distance: f32, category: u8) -> bool {
         for index in 0..self.count {
             if self.categories[index] != category {
@@ -473,18 +388,11 @@ struct BandCandidate {
     score: f32,
 }
 
-struct SeamCandidate {
-    x: f32,
-    z: f32,
-    yaw: f32,
-    score: f32,
-}
-
-struct CliffBaseSignal {
-    rise: f32,
-    yaw: f32,
-    base_slope: f32,
-    base_height_above_sea: f32,
+struct SettlementProfile {
+    subtype: u8,
+    float_well: f32,
+    relief_norm: f32,
+    attachment: f32,
 }
 
 fn scrap_flatness_degrees(terrain: &Terrain, x: f32, z: f32) -> f32 {
@@ -532,68 +440,111 @@ fn encode_yaw_flag(yaw: f32) -> u32 {
     ((normalized * 255.0).round() as u32) & 0xff
 }
 
-fn cliff_base_signal(terrain: &Terrain, x: f32, z: f32) -> Option<CliffBaseSignal> {
-    let base_height = terrain.sample_height(x as f64, z as f64);
-    let base_height_above_sea = base_height - SEA_LEVEL;
-    if base_height_above_sea > COAL_BASE_HEIGHT_MAX_ABOVE_SEA {
-        return None;
-    }
+fn classify_settlement_profile(
+    terrain: &Terrain,
+    x: f32,
+    z: f32,
+    half_width: f32,
+    half_depth: f32,
+) -> SettlementProfile {
+    let sample_half_width = half_width * SETTLEMENT_SAMPLE_SCALE;
+    let sample_half_depth = half_depth * SETTLEMENT_SAMPLE_SCALE;
+    let sample_offsets = [
+        (0.0, 0.0),
+        (-sample_half_width, -sample_half_depth),
+        (-sample_half_width, 0.0),
+        (-sample_half_width, sample_half_depth),
+        (0.0, -sample_half_depth),
+        (0.0, sample_half_depth),
+        (sample_half_width, -sample_half_depth),
+        (sample_half_width, 0.0),
+        (sample_half_width, sample_half_depth),
+    ];
 
-    let base_slope = scrap_flatness_degrees(terrain, x, z);
-    if base_slope > COAL_BASE_MAX_SLOPE_DEG {
-        return None;
-    }
+    let center_height = terrain.sample_height(x as f64, z as f64);
+    let mut min_height = center_height;
+    let mut max_height = center_height;
+    let mut positive_sum: f32 = 0.0;
+    let mut negative_sum: f32 = 0.0;
+    let mut max_positive: f32 = 0.0;
+    let mut other_count: f32 = 0.0;
 
-    let mut best: Option<(f32, f32, f32)> = None;
-    for step in 0..8 {
-        let angle = step as f32 / 8.0 * std::f32::consts::TAU;
-        let dir_x = angle.cos();
-        let dir_z = angle.sin();
-        let near_x = x + dir_x * 2.0;
-        let near_z = z + dir_z * 2.0;
-        let far_x = x + dir_x * 4.0;
-        let far_z = z + dir_z * 4.0;
-        let rise_near = terrain.sample_height(near_x as f64, near_z as f64) - base_height;
-        let rise_far = terrain.sample_height(far_x as f64, far_z as f64) - base_height;
-        let rise = rise_near.max(rise_far);
-        let face_slope = scrap_flatness_degrees(terrain, near_x, near_z)
-            .max(scrap_flatness_degrees(terrain, far_x, far_z));
-        if rise < COAL_MIN_CLIFF_RISE || face_slope < COAL_MIN_CLIFF_SLOPE_DEG {
+    for (index, (ox, oz)) in sample_offsets.iter().enumerate() {
+        let sample_height = terrain.sample_height((x + ox) as f64, (z + oz) as f64);
+        min_height = min_height.min(sample_height);
+        max_height = max_height.max(sample_height);
+        if index == 0 {
             continue;
         }
 
-        if best
-            .as_ref()
-            .is_none_or(|current| rise > current.0)
-        {
-            best = Some((rise, near_x, near_z));
+        other_count += 1.0;
+        let delta = sample_height - center_height;
+        if delta > 0.0 {
+            positive_sum += delta;
+            max_positive = max_positive.max(delta);
+        } else {
+            negative_sum += -delta;
         }
     }
 
-    let Some((rise, sample_x, sample_z)) = best else {
-        return None;
+    let positive_mean = if other_count > 0.0 { positive_sum / other_count } else { 0.0 };
+    let negative_mean = if other_count > 0.0 { negative_sum / other_count } else { 0.0 };
+    let relief = max_height - min_height;
+    let relief_norm = (relief / SETTLEMENT_RELIEF_MAX).clamp(0.0, 1.0);
+    let attachment = if positive_mean + negative_mean <= f32::EPSILON {
+        0.5
+    } else {
+        (positive_mean / (positive_mean + negative_mean)).clamp(0.0, 1.0)
     };
-    let (normal_x, normal_z) = terrain_gradient_direction(terrain, sample_x, sample_z)
-        .unwrap_or_else(|| terrain_gradient_direction(terrain, x, z).unwrap_or((1.0, 0.0)));
+    let float_well = ((max_positive * 0.7 + positive_mean * 0.3) / SETTLEMENT_FLOAT_WELL_DEPTH)
+        .clamp(0.0, 1.0);
 
-    Some(CliffBaseSignal {
-        rise,
-        yaw: normal_z.atan2(normal_x),
-        base_slope,
-        base_height_above_sea,
-    })
+    let subtype = if float_well >= SETTLEMENT_EMBEDDED_FLOAT_WELL_MIN
+        || attachment >= SETTLEMENT_EMBEDDED_ATTACHMENT_MIN
+    {
+        subtype::SETTLEMENT_EMBEDDED
+    } else if relief_norm >= SETTLEMENT_PERCHED_RELIEF_MIN
+        && attachment <= SETTLEMENT_PERCHED_ATTACHMENT_MAX
+    {
+        subtype::SETTLEMENT_PERCHED
+    } else {
+        subtype::SETTLEMENT_BALANCED
+    };
+
+    SettlementProfile {
+        subtype,
+        float_well,
+        relief_norm,
+        attachment,
+    }
 }
 
-fn terrain_gradient_direction(terrain: &Terrain, x: f32, z: f32) -> Option<(f32, f32)> {
-    let hx0 = terrain.sample_height((x - COAL_GRADIENT_SAMPLE_EPS) as f64, z as f64);
-    let hx1 = terrain.sample_height((x + COAL_GRADIENT_SAMPLE_EPS) as f64, z as f64);
-    let hz0 = terrain.sample_height(x as f64, (z - COAL_GRADIENT_SAMPLE_EPS) as f64);
-    let hz1 = terrain.sample_height(x as f64, (z + COAL_GRADIENT_SAMPLE_EPS) as f64);
-    let gx = hx1 - hx0;
-    let gz = hz1 - hz0;
-    let magnitude = (gx * gx + gz * gz).sqrt();
-    if magnitude <= f32::EPSILON {
-        return None;
-    }
-    Some((gx / magnitude, gz / magnitude))
+fn encode_unit_float(value: f32) -> u32 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u32
+}
+
+fn encode_settlement_flags(float_well: f32, relief_norm: f32, attachment: f32) -> u32 {
+    encode_unit_float(float_well)
+        | (encode_unit_float(relief_norm) << 8)
+        | (encode_unit_float(attachment) << 16)
+}
+
+#[cfg(test)]
+pub(crate) fn settlement_float_well(flags: u32) -> f32 {
+    decode_packed_unit_float(flags, 0)
+}
+
+#[cfg(test)]
+pub(crate) fn settlement_relief_norm(flags: u32) -> f32 {
+    decode_packed_unit_float(flags, 8)
+}
+
+#[cfg(test)]
+pub(crate) fn settlement_attachment(flags: u32) -> f32 {
+    decode_packed_unit_float(flags, 16)
+}
+
+#[cfg(test)]
+fn decode_packed_unit_float(flags: u32, shift: u32) -> f32 {
+    ((flags >> shift) & 0xff) as f32 / 255.0
 }

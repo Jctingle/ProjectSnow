@@ -66,6 +66,8 @@ const fragmentShader = `
 export type BlizzardMaskController = {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   setSettings(next: Partial<BlizzardMaskSettings>): void;
+  setVisible(visible: boolean): void;
+  isVisible(): boolean;
   update(centerX: number, centerY: number, centerZ: number): void;
 };
 
@@ -103,6 +105,12 @@ export function createBlizzardMask(): BlizzardMaskController {
       uniforms.uFeatherWidth.value = settings.featherWidth;
       uniforms.uHazeStartRatio.value = settings.hazeStartRatio;
       uniforms.uAlphaExponent.value = settings.alphaExponent;
+    },
+    setVisible(visible: boolean): void {
+      mesh.visible = visible;
+    },
+    isVisible(): boolean {
+      return mesh.visible;
     },
     update(centerX: number, centerY: number, centerZ: number): void {
       mesh.position.x = centerX;

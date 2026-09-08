@@ -2,7 +2,10 @@ use super::*;
 use crate::rng::cell_seed;
 use crate::shard_ring::{slot_index, NEIGHBOR_OFFSETS};
 use crate::terrain::SEA_LEVEL;
-use crate::world_nodes::{category, subtype, SCRAP_MAX_SLOPE_DEG};
+use crate::world_nodes::{
+    category, settlement_attachment, settlement_float_well, settlement_relief_norm, subtype,
+    SCRAP_MAX_SLOPE_DEG,
+};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -390,7 +393,7 @@ fn scrap_nodes_prefer_flat_and_separated_positions() {
 }
 
 #[test]
-fn raw_resources_split_into_flat_nickel_and_cliff_base_coal() {
+fn raw_resources_generate_flat_nickel_only() {
     let sim = build_sim();
     let nodes = current_world_node_details(&sim);
     let nickel: Vec<(u32, f32, f32)> = nodes
@@ -400,16 +403,8 @@ fn raw_resources_split_into_flat_nickel_and_cliff_base_coal() {
                 .then_some((flags, x, z))
         })
         .collect();
-    let coal: Vec<(u32, f32, f32)> = nodes
-        .iter()
-        .filter_map(|&(category_id, subtype_id, flags, x, z)| {
-            (category_id == category::RAW_RESOURCE && subtype_id == subtype::COAL_SEAM)
-                .then_some((flags, x, z))
-        })
-        .collect();
 
     assert!(!nickel.is_empty(), "expected at least one nickel band");
-    assert!(!coal.is_empty(), "expected at least one coal seam");
 
     for &(_, x, z) in &nickel {
         let height = sim.current.terrain.sample_height(x as f64, z as f64);
@@ -423,26 +418,63 @@ fn raw_resources_split_into_flat_nickel_and_cliff_base_coal() {
             "nickel should stay on flat terrain: slope={slope:.3} x={x:.3} z={z:.3}"
         );
     }
+}
 
-    for &(flags, x, z) in &coal {
-        let yaw = (flags & 0xff) as f32 / 255.0 * std::f32::consts::TAU;
-        let normal_x = yaw.cos();
-        let normal_z = yaw.sin();
-        let base_height = sim.current.terrain.sample_height(x as f64, z as f64);
-        let near_height = sim
-            .current
-            .terrain
-            .sample_height((x + normal_x * 2.0) as f64, (z + normal_z * 2.0) as f64);
-        let far_height = sim
-            .current
-            .terrain
-            .sample_height((x + normal_x * 4.0) as f64, (z + normal_z * 4.0) as f64);
-        let rise = (near_height - base_height).max(far_height - base_height);
-        assert!(
-            rise >= 1.0,
-            "coal seam should face a nearby cliff rise: rise={rise:.3} x={x:.3} z={z:.3}"
+#[test]
+fn settlements_encode_attachment_profile_and_float_well() {
+    let seeds = [4242u32, 4243, 4244, 4245, 4246, 4247, 4248, 4249];
+    let mut settlement_count = 0usize;
+
+    for seed in seeds {
+        let mut sim = Sim::new(
+            seed, 17.0, 29.0, 0.028, 5.2, 72.0, 1.2, 2.1, 0.011, 0.2, 0.95, 0.15, 45.0,
         );
+        sim.generate_heightmap(TEST_HEIGHTMAP_W, TEST_HEIGHTMAP_H, 144.0, 144.0);
+        sim.generate_slopemap();
+
+        for &(category_id, subtype_id, flags, x, z) in &current_world_node_details(&sim) {
+            if category_id != category::STRUCTURE {
+                continue;
+            }
+
+            settlement_count += 1;
+            let float_well = settlement_float_well(flags);
+            let relief_norm = settlement_relief_norm(flags);
+            let attachment = settlement_attachment(flags);
+            assert!(
+                (0.0..=1.0).contains(&float_well),
+                "settlement float well should be normalized: {float_well:.3} at x={x:.3} z={z:.3}"
+            );
+            assert!(
+                (0.0..=1.0).contains(&relief_norm),
+                "settlement relief should be normalized: {relief_norm:.3} at x={x:.3} z={z:.3}"
+            );
+            assert!(
+                (0.0..=1.0).contains(&attachment),
+                "settlement attachment should be normalized: {attachment:.3} at x={x:.3} z={z:.3}"
+            );
+            assert!(
+                matches!(
+                    subtype_id,
+                    subtype::SETTLEMENT_BALANCED
+                        | subtype::SETTLEMENT_PERCHED
+                        | subtype::SETTLEMENT_EMBEDDED
+                ),
+                "unexpected settlement subtype {subtype_id}"
+            );
+            if subtype_id == subtype::SETTLEMENT_EMBEDDED {
+                assert!(
+                    float_well >= 0.30 || attachment >= 0.50,
+                    "embedded settlement should show stronger attachment metrics"
+                );
+            }
+        }
     }
+
+    assert!(
+        settlement_count > 0,
+        "expected at least one settlement across the sampled deterministic seeds"
+    );
 }
 
 #[test]
