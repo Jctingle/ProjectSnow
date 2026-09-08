@@ -3,7 +3,8 @@ use crate::rng::cell_seed;
 use crate::shard_ring::{slot_index, NEIGHBOR_OFFSETS};
 use crate::terrain::SEA_LEVEL;
 use crate::world_nodes::{
-    category, settlement_attachment, settlement_float_well, settlement_relief_norm, subtype,
+    category, settlement_attachment, settlement_downward_depth_cells, settlement_float_well,
+    settlement_relief_norm, subtype,
     SCRAP_MAX_SLOPE_DEG,
 };
 use std::collections::BTreeMap;
@@ -131,6 +132,24 @@ fn current_world_node_details(sim: &Sim) -> Vec<(u8, u8, u32, f32, f32)> {
     (0..count)
         .map(|index| (categories[index], subtypes[index], flags[index], x[index], z[index]))
         .collect()
+}
+
+fn current_world_node_structure_shapes(sim: &Sim) -> Vec<(u8, f32, f32, u32)> {
+    let count = sim.world_node_count() as usize;
+    let categories = unsafe { std::slice::from_raw_parts(sim.world_node_categories_ptr(), count) };
+    let subtypes = unsafe { std::slice::from_raw_parts(sim.world_node_subtypes_ptr(), count) };
+    let widths = unsafe { std::slice::from_raw_parts(sim.world_node_radius_or_w_ptr(), count) };
+    let depths = unsafe { std::slice::from_raw_parts(sim.world_node_depth_or_h_ptr(), count) };
+    let flags = unsafe { std::slice::from_raw_parts(sim.world_node_flags_ptr(), count) };
+
+    let mut values = Vec::new();
+    for index in 0..count {
+        if categories[index] != category::STRUCTURE {
+            continue;
+        }
+        values.push((subtypes[index], widths[index], depths[index], flags[index]));
+    }
+    values
 }
 
 fn assert_neighbor_coords(sim: &Sim, dr: i32, dc: i32, row: i32, col: i32) {
@@ -433,7 +452,10 @@ fn settlements_encode_attachment_profile_and_float_well() {
         sim.generate_slopemap();
 
         for &(category_id, subtype_id, flags, x, z) in &current_world_node_details(&sim) {
-            if category_id != category::STRUCTURE {
+            if category_id != category::STRUCTURE
+                || subtype_id == subtype::LARGE_STRUCTURE
+                || subtype_id == subtype::SMALL_STRUCTURE
+            {
                 continue;
             }
 
@@ -475,6 +497,53 @@ fn settlements_encode_attachment_profile_and_float_well() {
         settlement_count > 0,
         "expected at least one settlement across the sampled deterministic seeds"
     );
+}
+
+#[test]
+fn settlements_reserve_large_rectangular_footprints_and_depth() {
+    let sim = build_sim();
+    let structures = current_world_node_structure_shapes(&sim);
+    let mut large_structure_count = 0usize;
+    let mut small_structure_count = 0usize;
+
+    for (subtype_id, half_width, half_depth, flags) in structures {
+        let width_cells = (half_width * 2.0 / 0.3).round();
+        let depth_cells = (half_depth * 2.0 / 0.3).round();
+        let downward_cells = settlement_downward_depth_cells(flags) as f32;
+        if subtype_id == subtype::LARGE_STRUCTURE {
+            large_structure_count += 1;
+            assert!(
+                (20.0..=50.0).contains(&width_cells),
+                "large structure width should reserve 20-50 APC cells, got {width_cells}"
+            );
+            assert!(
+                (20.0..=50.0).contains(&depth_cells),
+                "large structure depth should reserve 20-50 APC cells, got {depth_cells}"
+            );
+            assert!(
+                (50.0..=100.0).contains(&downward_cells),
+                "large structure downward extent should reserve 50-100 APC cells, got {downward_cells}"
+            );
+        }
+        if subtype_id == subtype::SMALL_STRUCTURE {
+            small_structure_count += 1;
+            assert!(
+                (5.0..=10.0).contains(&width_cells),
+                "small structure width should reserve 5-10 APC cells, got {width_cells}"
+            );
+            assert!(
+                (5.0..=10.0).contains(&depth_cells),
+                "small structure depth should reserve 5-10 APC cells, got {depth_cells}"
+            );
+            assert!(
+                (18.0..=36.0).contains(&downward_cells),
+                "small structure downward extent should reserve 18-36 APC cells, got {downward_cells}"
+            );
+        }
+    }
+
+    assert!(large_structure_count <= 1, "expected at most one large structure per shard");
+    assert!(small_structure_count <= 1, "expected at most one small structure per shard");
 }
 
 #[test]

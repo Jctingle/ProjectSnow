@@ -29,6 +29,9 @@ import {
 import type { BlizzardMaskSettings } from '../render/blizzardMask';
 import type { TiltShiftSettings } from '../render/tiltShiftPass';
 import { registerWindowToggle } from './windowToggleBar';
+import {
+  SETTLEMENT_DEBUG_BEIGE,
+} from '../features/terrain/settlementDebugPalette';
 
 export type DevPanelController = {
   getApcSpeed(): number;
@@ -284,6 +287,34 @@ export function createDevPanel(
   generationOnRadio.addEventListener('change', () => {
     if (generationOnRadio.checked) onSettlementProfilesToggle?.(true);
   });
+
+  const generationKeyBlock = document.createElement('div');
+  generationKeyBlock.style.cssText =
+    'display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:8px 10px; border-radius:4px; color:#fff;';
+  const generationKeyHeader = document.createElement('span');
+  generationKeyHeader.textContent = 'Settlement key';
+  generationKeyBlock.appendChild(generationKeyHeader);
+
+  const keyEntries = [
+    ['1', 'Balanced'],
+    ['2', 'Perched'],
+    ['3', 'Embedded'],
+  ] as const;
+
+  for (const [number, label] of keyEntries) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:8px;';
+    const badge = document.createElement('span');
+    badge.textContent = number;
+    badge.style.cssText = `display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:3px; border:1px solid rgba(74,57,34,0.35); background:${SETTLEMENT_DEBUG_BEIGE}; color:#34281a; font-weight:700;`;
+    const text = document.createElement('span');
+    text.textContent = label;
+    row.appendChild(badge);
+    row.appendChild(text);
+    generationKeyBlock.appendChild(row);
+  }
+
+  generationPanel.appendChild(generationKeyBlock);
 
   function createSliderRow(
     field: {

@@ -4,10 +4,21 @@ use crate::terrain::{Terrain, SEA_LEVEL};
 pub(crate) const MAX_WORLD_NODES_PER_SHARD: usize = 32;
 const LAYER_WORLD_NODES: u32 = 2;
 const STRUCTURE_EDGE_MARGIN: f32 = 10.0;
-const STRUCTURE_ATTEMPTS: usize = 10;
-const STRUCTURE_SPAWN_CHANCE: f32 = 0.25;
+const STRUCTURE_ATTEMPTS: usize = 15;
+const STRUCTURE_SPAWN_CHANCE: f32 = 0.12;
+const LARGE_STRUCTURE_SPAWN_CHANCE: f32 = 0.20;
+const SMALL_STRUCTURE_SPAWN_CHANCE: f32 = 0.50;
+const APC_UNIT_SIZE: f32 = 0.3;
 const SETTLEMENT_HALF_WIDTH: f32 = 4.0;
 const SETTLEMENT_HALF_DEPTH: f32 = 4.0;
+const SMALL_STRUCTURE_MIN_CELLS: u32 = 5;
+const SMALL_STRUCTURE_MAX_CELLS: u32 = 10;
+const LARGE_STRUCTURE_MIN_CELLS: u32 = 20;
+const LARGE_STRUCTURE_MAX_CELLS: u32 = 50;
+const SMALL_STRUCTURE_DOWNWARD_DEPTH_CELLS_MIN: u32 = 18;
+const SMALL_STRUCTURE_DOWNWARD_DEPTH_CELLS_MAX: u32 = 36;
+const LARGE_STRUCTURE_DOWNWARD_DEPTH_CELLS_MIN: u32 = 50;
+const LARGE_STRUCTURE_DOWNWARD_DEPTH_CELLS_MAX: u32 = 100;
 const SETTLEMENT_SAMPLE_SCALE: f32 = 0.82;
 const SETTLEMENT_FLOAT_WELL_DEPTH: f32 = 2.4;
 const SETTLEMENT_RELIEF_MAX: f32 = 4.0;
@@ -57,6 +68,8 @@ pub(crate) mod subtype {
     pub(crate) const NICKEL_BAND: u8 = 2;
     pub(crate) const SETTLEMENT_PERCHED: u8 = 3;
     pub(crate) const SETTLEMENT_EMBEDDED: u8 = 4;
+    pub(crate) const LARGE_STRUCTURE: u8 = 5;
+    pub(crate) const SMALL_STRUCTURE: u8 = 6;
 }
 
 pub(crate) struct WorldNodes {
@@ -79,6 +92,8 @@ impl WorldNodes {
         let half_extent = terrain.half_extent();
 
         nodes.generate_settlement_slot(world_seed, row, col, terrain, half_extent, &mut rng);
+        nodes.generate_large_structure_slot(world_seed, row, col, terrain, half_extent, &mut rng);
+    nodes.generate_small_structure_slot(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes.generate_scrap_fields(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes.generate_nickel_bands(world_seed, row, col, terrain, half_extent, &mut rng);
         nodes
@@ -138,12 +153,21 @@ impl WorldNodes {
         }
 
         for attempt in 0..STRUCTURE_ATTEMPTS {
-            let x = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN);
-            let z = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN);
+            let x = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + SETTLEMENT_HALF_WIDTH);
+            let z = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + SETTLEMENT_HALF_DEPTH);
             if !terrain.is_structure_viable(x, z) {
                 continue;
             }
-            let profile = classify_settlement_profile(terrain, x, z, SETTLEMENT_HALF_WIDTH, SETTLEMENT_HALF_DEPTH);
+            if self.overlaps_structure_footprint(x, z, SETTLEMENT_HALF_WIDTH, SETTLEMENT_HALF_DEPTH, 0.0) {
+                continue;
+            }
+            let profile = classify_settlement_profile(
+                terrain,
+                x,
+                z,
+                SETTLEMENT_HALF_WIDTH,
+                SETTLEMENT_HALF_DEPTH,
+            );
 
             self.push(
                 stable_node_id(world_seed, row, col, attempt as u32),
@@ -154,7 +178,106 @@ impl WorldNodes {
                 SETTLEMENT_HALF_WIDTH,
                 SETTLEMENT_HALF_DEPTH,
                 cell_seed(world_seed, row, col, 0x1000 + attempt as u32),
-                encode_settlement_flags(profile.float_well, profile.relief_norm, profile.attachment),
+                encode_settlement_flags(
+                    profile.float_well,
+                    profile.relief_norm,
+                    profile.attachment,
+                    0,
+                ),
+            );
+            break;
+        }
+    }
+
+    fn generate_large_structure_slot(
+        &mut self,
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) {
+        if rng.next_unsigned() > LARGE_STRUCTURE_SPAWN_CHANCE {
+            return;
+        }
+
+        for attempt in 0..STRUCTURE_ATTEMPTS {
+            let width_cells = sample_u32_inclusive(rng, LARGE_STRUCTURE_MIN_CELLS, LARGE_STRUCTURE_MAX_CELLS);
+            let depth_cells = sample_u32_inclusive(rng, LARGE_STRUCTURE_MIN_CELLS, LARGE_STRUCTURE_MAX_CELLS);
+            let half_width = width_cells as f32 * APC_UNIT_SIZE * 0.5;
+            let half_depth = depth_cells as f32 * APC_UNIT_SIZE * 0.5;
+            let x = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + half_width);
+            let z = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + half_depth);
+            if !terrain.is_structure_viable(x, z) {
+                continue;
+            }
+            if self.overlaps_structure_footprint(x, z, half_width, half_depth, 0.0) {
+                continue;
+            }
+            let downward_depth_cells = sample_u32_inclusive(
+                rng,
+                LARGE_STRUCTURE_DOWNWARD_DEPTH_CELLS_MIN,
+                LARGE_STRUCTURE_DOWNWARD_DEPTH_CELLS_MAX,
+            );
+
+            self.push(
+                stable_node_id(world_seed, row, col, 0x6000 + attempt as u32),
+                category::STRUCTURE,
+                subtype::LARGE_STRUCTURE,
+                x,
+                z,
+                half_width,
+                half_depth,
+                cell_seed(world_seed, row, col, 0x1100 + attempt as u32),
+                encode_settlement_flags(0.0, 0.0, 0.0, downward_depth_cells),
+            );
+            break;
+        }
+    }
+
+    fn generate_small_structure_slot(
+        &mut self,
+        world_seed: u32,
+        row: i32,
+        col: i32,
+        terrain: &Terrain,
+        half_extent: f32,
+        rng: &mut Rng,
+    ) {
+        if rng.next_unsigned() > SMALL_STRUCTURE_SPAWN_CHANCE {
+            return;
+        }
+
+        for attempt in 0..STRUCTURE_ATTEMPTS {
+            let width_cells = sample_u32_inclusive(rng, SMALL_STRUCTURE_MIN_CELLS, SMALL_STRUCTURE_MAX_CELLS);
+            let depth_cells = sample_u32_inclusive(rng, SMALL_STRUCTURE_MIN_CELLS, SMALL_STRUCTURE_MAX_CELLS);
+            let half_width = width_cells as f32 * APC_UNIT_SIZE * 0.5;
+            let half_depth = depth_cells as f32 * APC_UNIT_SIZE * 0.5;
+            let x = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + half_width);
+            let z = sample_inner_coord(rng, half_extent, STRUCTURE_EDGE_MARGIN + half_depth);
+            if !terrain.is_structure_viable(x, z) {
+                continue;
+            }
+            if self.overlaps_structure_footprint(x, z, half_width, half_depth, 0.0) {
+                continue;
+            }
+            let downward_depth_cells = sample_u32_inclusive(
+                rng,
+                SMALL_STRUCTURE_DOWNWARD_DEPTH_CELLS_MIN,
+                SMALL_STRUCTURE_DOWNWARD_DEPTH_CELLS_MAX,
+            );
+
+            self.push(
+                stable_node_id(world_seed, row, col, 0x7000 + attempt as u32),
+                category::STRUCTURE,
+                subtype::SMALL_STRUCTURE,
+                x,
+                z,
+                half_width,
+                half_depth,
+                cell_seed(world_seed, row, col, 0x1200 + attempt as u32),
+                encode_settlement_flags(0.0, 0.0, 0.0, downward_depth_cells),
             );
             break;
         }
@@ -336,9 +459,42 @@ impl WorldNodes {
             if self.categories[index] != category {
                 continue;
             }
+            if category == category::STRUCTURE {
+                let dx = (self.x[index] - x).abs();
+                let dz = (self.z[index] - z).abs();
+                let allowed_x = self.radius_or_w[index] + min_distance;
+                let allowed_z = self.depth_or_h[index] + min_distance;
+                if dx < allowed_x && dz < allowed_z {
+                    return true;
+                }
+                continue;
+            }
             let dx = self.x[index] - x;
             let dz = self.z[index] - z;
             if dx * dx + dz * dz < min_distance * min_distance {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn overlaps_structure_footprint(
+        &self,
+        x: f32,
+        z: f32,
+        half_width: f32,
+        half_depth: f32,
+        clearance: f32,
+    ) -> bool {
+        for index in 0..self.count {
+            if self.categories[index] != category::STRUCTURE {
+                continue;
+            }
+            let dx = (self.x[index] - x).abs();
+            let dz = (self.z[index] - z).abs();
+            let allowed_x = self.radius_or_w[index] + half_width + clearance;
+            let allowed_z = self.depth_or_h[index] + half_depth + clearance;
+            if dx < allowed_x && dz < allowed_z {
                 return true;
             }
         }
@@ -429,6 +585,10 @@ fn sample_inner_coord(rng: &mut Rng, half_extent: f32, margin: f32) -> f32 {
 
 fn stable_node_id(world_seed: u32, row: i32, col: i32, local_index: u32) -> u32 {
     cell_seed(world_seed, row, col, 0x3000 ^ local_index)
+}
+
+fn sample_u32_inclusive(rng: &mut Rng, min: u32, max: u32) -> u32 {
+    min + (rng.next_unsigned() * (max - min + 1) as f32) as u32
 }
 
 fn quantized_yaw_from_rng(rng: &mut Rng) -> f32 {
@@ -523,10 +683,16 @@ fn encode_unit_float(value: f32) -> u32 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u32
 }
 
-fn encode_settlement_flags(float_well: f32, relief_norm: f32, attachment: f32) -> u32 {
+fn encode_settlement_flags(
+    float_well: f32,
+    relief_norm: f32,
+    attachment: f32,
+    downward_depth_cells: u32,
+) -> u32 {
     encode_unit_float(float_well)
         | (encode_unit_float(relief_norm) << 8)
         | (encode_unit_float(attachment) << 16)
+        | ((downward_depth_cells.min(0xff)) << 24)
 }
 
 #[cfg(test)]
@@ -542,6 +708,11 @@ pub(crate) fn settlement_relief_norm(flags: u32) -> f32 {
 #[cfg(test)]
 pub(crate) fn settlement_attachment(flags: u32) -> f32 {
     decode_packed_unit_float(flags, 16)
+}
+
+#[cfg(test)]
+pub(crate) fn settlement_downward_depth_cells(flags: u32) -> u32 {
+    flags >> 24
 }
 
 #[cfg(test)]

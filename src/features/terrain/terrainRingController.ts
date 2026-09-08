@@ -28,6 +28,11 @@ import { isCameraFollowEnabled } from '../../input/camera';
 import { GROUND_SIZE, HEIGHTMAP_GRID_SIZE } from '../../sim/config';
 import type { Sim } from 'wasm-sim';
 import { createWorldNodeDebugGroup, disposeWorldNodeDebugGroup } from './worldNodeDebug';
+import {
+  applyTerrainMaskTexture,
+  disposeTerrainMaskTexture,
+  type TerrainMaskSpec,
+} from './terrainMaskOverlay';
 import { createTerrainMesh, createTerrainMeshFromGrid } from '../../world/terrain';
 import {
   createTierOverlayMesh,
@@ -39,6 +44,9 @@ const NEIGHBOR_KEYS: [number, number][] = [
   [0, 1], [0, -1], [1, 0], [-1, 0],
   [1, 1], [1, -1], [-1, 1], [-1, -1],
 ];
+const RAW_RESOURCE_CATEGORY = 3;
+const NICKEL_BAND_SUBTYPE = 2;
+const NICKEL_MASK_TINT = '#8ca8b2';
 
 export type TerrainRingController = {
   rebuildGroundMesh(): void;
@@ -57,6 +65,7 @@ export function createTerrainRingController(
 
   let ground = createTerrainMesh(sim);
   let groundNodeGroup = buildCurrentWorldNodeGroup();
+  applyTerrainMaskTexture(ground, { masks: buildCurrentTerrainMaskSpecs() });
   let slopeDebugOn = false;
   let prevShardRow = sim.current_shard_row();
   let prevShardCol = sim.current_shard_col();
@@ -73,6 +82,7 @@ export function createTerrainRingController(
     disposeTierOverlayMesh(tierOverlays.get(mesh));
     tierOverlays.delete(mesh);
     scene.remove(mesh);
+    disposeTerrainMaskTexture(mesh);
     mesh.geometry.dispose();
     const material = mesh.material;
     if (Array.isArray(material)) {
@@ -98,6 +108,46 @@ export function createTerrainRingController(
     });
   }
 
+  function buildTerrainMaskSpecs(params: {
+    count: number;
+    categories: Uint8Array;
+    subtypes: Uint8Array;
+    x: Float32Array;
+    z: Float32Array;
+    radiusOrW: Float32Array;
+    depthOrH: Float32Array;
+    seeds: Uint32Array;
+  }): TerrainMaskSpec[] {
+    const masks: TerrainMaskSpec[] = [];
+    for (let index = 0; index < params.count; index += 1) {
+      if (params.categories[index] !== RAW_RESOURCE_CATEGORY) continue;
+      if ((params.subtypes[index] ?? 0) !== NICKEL_BAND_SUBTYPE) continue;
+      const halfWidth = params.radiusOrW[index] ?? 0;
+      const halfLength = params.depthOrH[index] ?? 0;
+      masks.push({
+        x: params.x[index] ?? 0,
+        z: params.z[index] ?? 0,
+        radius: Math.max(halfWidth, halfLength),
+        seed: params.seeds[index] ?? 0,
+        tint: NICKEL_MASK_TINT,
+      });
+    }
+    return masks;
+  }
+
+  function buildCurrentTerrainMaskSpecs(): TerrainMaskSpec[] {
+    return buildTerrainMaskSpecs({
+      count: getWorldNodeCount(),
+      categories: getWorldNodeCategories(),
+      subtypes: getWorldNodeSubtypes(),
+      x: getWorldNodeX(),
+      z: getWorldNodeZ(),
+      radiusOrW: getWorldNodeRadiusOrW(),
+      depthOrH: getWorldNodeDepthOrH(),
+      seeds: getWorldNodeSeeds(),
+    });
+  }
+
   function buildNeighborWorldNodeGroup(dr: number, dc: number): THREE.Group | null {
     const count = getNeighborWorldNodeCount(dr, dc);
     const heightmap = getNeighborHeightmap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
@@ -117,6 +167,24 @@ export function createTerrainRingController(
       flags: getNeighborWorldNodeFlags(dr, dc),
       heightmap,
       heightMult: sim.height_mult(),
+    });
+  }
+
+  function buildNeighborTerrainMaskSpecs(dr: number, dc: number): TerrainMaskSpec[] {
+    const count = getNeighborWorldNodeCount(dr, dc);
+    if (count === 0) {
+      return [];
+    }
+
+    return buildTerrainMaskSpecs({
+      count,
+      categories: getNeighborWorldNodeCategories(dr, dc),
+      subtypes: getNeighborWorldNodeSubtypes(dr, dc),
+      x: getNeighborWorldNodeX(dr, dc),
+      z: getNeighborWorldNodeZ(dr, dc),
+      radiusOrW: getNeighborWorldNodeRadiusOrW(dr, dc),
+      depthOrH: getNeighborWorldNodeDepthOrH(dr, dc),
+      seeds: getNeighborWorldNodeSeeds(dr, dc),
     });
   }
 
@@ -163,6 +231,7 @@ export function createTerrainRingController(
     neighborNodeGroups.clear();
     ground = createTerrainMesh(sim);
     groundNodeGroup = buildCurrentWorldNodeGroup();
+    applyTerrainMaskTexture(ground, { masks: buildCurrentTerrainMaskSpecs() });
     scene.add(ground);
     scene.add(groundNodeGroup);
     attachTierOverlay(ground, getSlopemap(HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE));
@@ -270,6 +339,7 @@ export function createTerrainRingController(
           if (heightmap) {
             warnIfNeighborHeightmapLooksInvalid(heightmap);
             const terrainMesh = createTerrainMeshFromGrid(heightmap, sim.height_mult());
+            applyTerrainMaskTexture(terrainMesh, { masks: buildNeighborTerrainMaskSpecs(dr, dc) });
             const slopemap = getNeighborSlopemap(dr, dc, HEIGHTMAP_GRID_SIZE, HEIGHTMAP_GRID_SIZE);
             if (slopemap) attachTierOverlay(terrainMesh, slopemap);
             terrainMesh.position.x = dc * GROUND_SIZE;

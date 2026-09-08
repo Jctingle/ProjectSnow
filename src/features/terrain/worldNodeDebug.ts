@@ -1,19 +1,19 @@
 import * as THREE from 'three';
 import { HEIGHTMAP_GRID_SIZE, GROUND_SIZE } from '../../sim/config';
+import { settlementSubtypeClassNumber } from './settlementDebugPalette';
 
 const STRUCTURE_CATEGORY = 1;
 const SCRAP_CATEGORY = 2;
-const RAW_RESOURCE_CATEGORY = 3;
-const SETTLEMENT_PERCHED_SUBTYPE = 3;
-const SETTLEMENT_EMBEDDED_SUBTYPE = 4;
 const SCRAP_FIELD_SUBTYPE = 1;
-const NICKEL_BAND_SUBTYPE = 2;
+const LARGE_STRUCTURE_SUBTYPE = 5;
+const SMALL_STRUCTURE_SUBTYPE = 6;
 
-const balancedSettlementColor = new THREE.Color('#b88a48');
-const perchedSettlementColor = new THREE.Color('#d0b17a');
-const embeddedSettlementColor = new THREE.Color('#8d6a42');
+const APC_CELL_WORLD_SIZE = 0.3;
+const SETTLEMENT_TOP_HEIGHT_CELLS = 4;
+const largeStructureOutlineColor = new THREE.Color('#d2362a');
+const smallStructureOutlineColor = new THREE.Color('#29a0d2');
+const settlementFillColor = new THREE.Color('#c7b48f');
 const scrapColor = new THREE.Color('#4aa0a8');
-const nickelColor = new THREE.Color('#9ec7d8');
 
 function gridIndexFromWorld(x: number, z: number): number {
   const fx = (x / GROUND_SIZE + 0.5) * (HEIGHTMAP_GRID_SIZE - 1);
@@ -27,36 +27,84 @@ function worldHeightAt(heightmap: Float32Array, x: number, z: number, heightMult
   return (heightmap[gridIndexFromWorld(x, z)] ?? 0) * heightMult;
 }
 
-function unitFloatFromFlags(flags: number, shift: number): number {
-  return ((flags >>> shift) & 0xff) / 255;
+function settlementDownwardDepth(flags: number): number {
+  return ((flags >>> 24) & 0xff) * APC_CELL_WORLD_SIZE;
 }
 
-function settlementColor(subtype: number): THREE.Color {
-  if (subtype === SETTLEMENT_PERCHED_SUBTYPE) return perchedSettlementColor;
-  if (subtype === SETTLEMENT_EMBEDDED_SUBTYPE) return embeddedSettlementColor;
-  return balancedSettlementColor;
+function buildSettlementFaceTexture(classNumber: number): THREE.CanvasTexture | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#c7b48f';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'rgba(68, 54, 35, 0.42)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+  ctx.fillStyle = '#34281a';
+  ctx.font = 'bold 72px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(classNumber), canvas.width * 0.5, canvas.height * 0.55);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
-function structureMesh(
+function buildSettlementMaterials(classNumber: number): THREE.MeshStandardMaterial[] {
+  const texture = buildSettlementFaceTexture(classNumber);
+  return Array.from({ length: 6 }, () => new THREE.MeshStandardMaterial({
+    color: settlementFillColor,
+    roughness: 0.95,
+    metalness: 0.05,
+    map: texture,
+  }));
+}
+
+function settlementMesh(
   width: number,
   depth: number,
   seed: number,
   subtype: number,
-  floatWell: number,
+  flags: number,
 ): THREE.Mesh {
   const height = Math.max(width, depth) * 0.9;
   const geometry = new THREE.BoxGeometry(width, height, depth);
-  const material = new THREE.MeshStandardMaterial({
-    color: settlementColor(subtype),
-    roughness: 0.95,
-    metalness: 0.05,
+  const material = buildSettlementMaterials(settlementSubtypeClassNumber(subtype));
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.y = ((seed & 0xff) / 255) * Math.PI * 2;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.debugNodeHeight = height;
+  const floatWell = (flags & 0xff) / 255;
+  mesh.userData.debugNodeVerticalOffset = height * (0.5 - floatWell * 0.22);
+  return mesh;
+}
+
+function largeStructureMesh(
+  width: number,
+  depth: number,
+  seed: number,
+  flags: number,
+  outlineColor: THREE.Color,
+): THREE.Mesh {
+  const topHeight = SETTLEMENT_TOP_HEIGHT_CELLS * APC_CELL_WORLD_SIZE;
+  const downwardDepth = settlementDownwardDepth(flags);
+  const height = topHeight + downwardDepth;
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const material = new THREE.MeshBasicMaterial({
+    color: outlineColor,
+    wireframe: true,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.y = ((seed & 0xff) / 255) * Math.PI * 2;
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   mesh.userData.debugNodeHeight = height;
-  mesh.userData.debugNodeVerticalOffset = height * (0.5 - floatWell * 0.22);
+  mesh.userData.debugNodeVerticalOffset = topHeight - height * 0.5;
   return mesh;
 }
 
@@ -75,26 +123,6 @@ function scrapMesh(radius: number, depth: number, seed: number): THREE.Mesh {
   return mesh;
 }
 
-function nickelBandMesh(width: number, length: number, yaw: number): THREE.Mesh {
-  const thickness = 0.18;
-  const geometry = new THREE.BoxGeometry(width, thickness, length);
-  const material = new THREE.MeshStandardMaterial({
-    color: nickelColor,
-    roughness: 0.55,
-    metalness: 0.35,
-    transparent: true,
-    opacity: 0.9,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.y = yaw;
-  mesh.userData.debugNodeHeight = thickness;
-  return mesh;
-}
-
-function yawFromFlags(flags: number): number {
-  return (flags & 0xff) / 255 * Math.PI * 2;
-}
-
 function disposeNodeObject(object: THREE.Object3D): void {
   if (object instanceof THREE.Mesh) {
     object.geometry.dispose();
@@ -104,10 +132,18 @@ function disposeNodeObject(object: THREE.Object3D): void {
   }
   const material = object.material;
   if (Array.isArray(material)) {
+    const seenMaps = new Set<THREE.Texture>();
     for (const entry of material) {
+      if ('map' in entry && entry.map && !seenMaps.has(entry.map)) {
+        seenMaps.add(entry.map);
+        entry.map.dispose();
+      }
       entry.dispose();
     }
   } else {
+    if ('map' in material && material.map) {
+      material.map.dispose();
+    }
     material.dispose();
   }
 }
@@ -138,15 +174,30 @@ export function createWorldNodeDebugGroup(params: {
     const seed = params.seeds[index] ?? 0;
     const flags = params.flags[index] ?? 0;
     const baseHeight = worldHeightAt(params.heightmap, nodeX, nodeZ, params.heightMult);
-    const floatWell = unitFloatFromFlags(flags, 0);
 
     let mesh: THREE.Mesh | null = null;
     if (category === STRUCTURE_CATEGORY) {
-      mesh = structureMesh(radiusOrW * 2.0, depthOrH * 2.0, seed, subtype, floatWell);
+      if (subtype === LARGE_STRUCTURE_SUBTYPE) {
+        mesh = largeStructureMesh(
+          radiusOrW * 2.0,
+          depthOrH * 2.0,
+          seed,
+          flags,
+          largeStructureOutlineColor,
+        );
+      } else if (subtype === SMALL_STRUCTURE_SUBTYPE) {
+        mesh = largeStructureMesh(
+          radiusOrW * 2.0,
+          depthOrH * 2.0,
+          seed,
+          flags,
+          smallStructureOutlineColor,
+        );
+      } else {
+        mesh = settlementMesh(radiusOrW * 2.0, depthOrH * 2.0, seed, subtype, flags);
+      }
     } else if (category === SCRAP_CATEGORY || subtype === SCRAP_FIELD_SUBTYPE) {
       mesh = scrapMesh(radiusOrW, depthOrH, seed);
-    } else if (category === RAW_RESOURCE_CATEGORY && subtype === NICKEL_BAND_SUBTYPE) {
-      mesh = nickelBandMesh(radiusOrW, depthOrH, yawFromFlags(flags));
     }
 
     if (!mesh) {

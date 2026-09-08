@@ -44,7 +44,7 @@ export const SWEEP_SCALE = .0390;
 // World-height amplitude of the sweep layer.
 // Higher values add more visible large-scale rolling variation on top
 // of otherwise-flat areas; lower values keep plateaus calmer.
-export const SWEEP_AMP = 2.7200;
+export const SWEEP_AMP = 1.7200;
 
 // Vertical scale applied to each terrain tier level (valleys/plateaus/
 // ridges from the seed-cone system). This is now the dominant driver of
