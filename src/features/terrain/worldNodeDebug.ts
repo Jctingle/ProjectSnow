@@ -1,18 +1,24 @@
 import * as THREE from 'three';
 import { HEIGHTMAP_GRID_SIZE, GROUND_SIZE } from '../../sim/config';
 import { settlementSubtypeClassNumber } from './settlementDebugPalette';
-
-const STRUCTURE_CATEGORY = 1;
-const SCRAP_CATEGORY = 2;
-const SCRAP_FIELD_SUBTYPE = 1;
-const LARGE_STRUCTURE_SUBTYPE = 5;
-const SMALL_STRUCTURE_SUBTYPE = 6;
+import {
+  LARGE_STRUCTURE_SUBTYPE,
+  SCRAP_CATEGORY,
+  SCRAP_FIELD_SUBTYPE,
+  SMALL_STRUCTURE_SUBTYPE,
+  STRUCTURE_CATEGORY,
+  structureRotationY,
+} from './worldNodeKinds';
 
 const APC_CELL_WORLD_SIZE = 0.3;
 const SETTLEMENT_TOP_HEIGHT_CELLS = 4;
+const LARGE_STRUCTURE_TOP_LIFT_RATIO = 0.08;
+const STRUCTURE_RIM_SAMPLES_PER_EDGE = 12;
+const STRUCTURE_SHELL_LATERAL_OVERSHOOT = 1.002;
 const largeStructureOutlineColor = new THREE.Color('#d2362a');
 const smallStructureOutlineColor = new THREE.Color('#29a0d2');
 const settlementFillColor = new THREE.Color('#c7b48f');
+const structureShellColor = new THREE.Color('#15181c');
 const scrapColor = new THREE.Color('#4aa0a8');
 
 function gridIndexFromWorld(x: number, z: number): number {
@@ -29,6 +35,64 @@ function worldHeightAt(heightmap: Float32Array, x: number, z: number, heightMult
 
 function settlementDownwardDepth(flags: number): number {
   return ((flags >>> 24) & 0xff) * APC_CELL_WORLD_SIZE;
+}
+
+// The terrain cutout removes the whole footprint, so only the rim decides how
+// high the roof must sit to stay above every surviving terrain edge.
+function footprintRimMaxHeight(
+  heightmap: Float32Array,
+  heightMult: number,
+  centerX: number,
+  centerZ: number,
+  halfWidth: number,
+  halfDepth: number,
+  rotationY: number,
+): number {
+  const cos = Math.cos(rotationY);
+  const sin = Math.sin(rotationY);
+  let maxHeight = -Infinity;
+
+  for (let step = 0; step <= STRUCTURE_RIM_SAMPLES_PER_EDGE; step += 1) {
+    const t = (step / STRUCTURE_RIM_SAMPLES_PER_EDGE) * 2 - 1;
+    const rimLocals: [number, number][] = [
+      [t * halfWidth, -halfDepth],
+      [t * halfWidth, halfDepth],
+      [-halfWidth, t * halfDepth],
+      [halfWidth, t * halfDepth],
+    ];
+    for (const [localX, localZ] of rimLocals) {
+      const worldX = centerX + localX * cos + localZ * sin;
+      const worldZ = centerZ - localX * sin + localZ * cos;
+      const height = worldHeightAt(heightmap, worldX, worldZ, heightMult);
+      if (height > maxHeight) maxHeight = height;
+    }
+  }
+
+  return Number.isFinite(maxHeight) ? maxHeight : 0;
+}
+
+// Back-face shell so the cutout reads as an enclosed interior instead of void.
+function attachStructureShell(
+  mesh: THREE.Mesh,
+  width: number,
+  height: number,
+  depth: number,
+): void {
+  const shell = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    new THREE.MeshStandardMaterial({
+      color: structureShellColor,
+      roughness: 1,
+      metalness: 0,
+      side: THREE.BackSide,
+    }),
+  );
+  shell.scale.set(
+    STRUCTURE_SHELL_LATERAL_OVERSHOOT,
+    1,
+    STRUCTURE_SHELL_LATERAL_OVERSHOOT,
+  );
+  mesh.add(shell);
 }
 
 function buildSettlementFaceTexture(classNumber: number): THREE.CanvasTexture | null {
@@ -75,7 +139,7 @@ function settlementMesh(
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const material = buildSettlementMaterials(settlementSubtypeClassNumber(subtype));
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.y = ((seed & 0xff) / 255) * Math.PI * 2;
+  mesh.rotation.y = structureRotationY(seed);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   mesh.userData.debugNodeHeight = height;
@@ -90,6 +154,7 @@ function largeStructureMesh(
   seed: number,
   flags: number,
   outlineColor: THREE.Color,
+  topLiftRatio = 0,
 ): THREE.Mesh {
   const topHeight = SETTLEMENT_TOP_HEIGHT_CELLS * APC_CELL_WORLD_SIZE;
   const downwardDepth = settlementDownwardDepth(flags);
@@ -100,11 +165,12 @@ function largeStructureMesh(
     wireframe: true,
   });
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.y = ((seed & 0xff) / 255) * Math.PI * 2;
+  mesh.rotation.y = structureRotationY(seed);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   mesh.userData.debugNodeHeight = height;
-  mesh.userData.debugNodeVerticalOffset = topHeight - height * 0.5;
+  mesh.userData.debugNodeVerticalOffset = topHeight - height * 0.5 + topHeight * topLiftRatio;
+  attachStructureShell(mesh, width, height, depth);
   return mesh;
 }
 
@@ -174,6 +240,8 @@ export function createWorldNodeDebugGroup(params: {
     const seed = params.seeds[index] ?? 0;
     const flags = params.flags[index] ?? 0;
     const baseHeight = worldHeightAt(params.heightmap, nodeX, nodeZ, params.heightMult);
+    const isCutoutStructure = category === STRUCTURE_CATEGORY
+      && (subtype === LARGE_STRUCTURE_SUBTYPE || subtype === SMALL_STRUCTURE_SUBTYPE);
 
     let mesh: THREE.Mesh | null = null;
     if (category === STRUCTURE_CATEGORY) {
@@ -184,6 +252,7 @@ export function createWorldNodeDebugGroup(params: {
           seed,
           flags,
           largeStructureOutlineColor,
+          LARGE_STRUCTURE_TOP_LIFT_RATIO,
         );
       } else if (subtype === SMALL_STRUCTURE_SUBTYPE) {
         mesh = largeStructureMesh(
@@ -207,7 +276,18 @@ export function createWorldNodeDebugGroup(params: {
     const meshHeight = (mesh.userData.debugNodeHeight as number | undefined) ?? 1;
     const verticalOffset = (mesh.userData.debugNodeVerticalOffset as number | undefined)
       ?? meshHeight * 0.5;
-    mesh.position.set(nodeX, baseHeight + verticalOffset, nodeZ);
+    const anchorHeight = isCutoutStructure
+      ? footprintRimMaxHeight(
+        params.heightmap,
+        params.heightMult,
+        nodeX,
+        nodeZ,
+        radiusOrW,
+        depthOrH,
+        structureRotationY(seed),
+      )
+      : baseHeight;
+    mesh.position.set(nodeX, anchorHeight + verticalOffset, nodeZ);
     group.add(mesh);
   }
 

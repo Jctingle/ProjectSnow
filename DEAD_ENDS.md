@@ -26,6 +26,7 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 ## World And Encounter Systems Not Built
 
 - Deterministic shard-owned world-node generation foundation now exists in Rust/WASM with fixed-cap SoA arrays, settlement placeholders that now carry terrain-attachment and float-well profiling, reduced scrap generation, and nickel ice-sheet raw resources, but selection, mutable runtime state, and full building/resource gameplay are still not built.
+- Large and small structure nodes now hide the terrain surface inside their footprint via a shard-local fragment cutout field (capped at 8 fields per shard mesh), with roofs anchored to the footprint rim height and a back-face interior shell sealing the opening, but the cavity is still debug geometry rather than real interior content.
 - Building exploration loop (focus transitions, explored-floor progression rules, structure risk loops) is not complete.
 - Encounter-based multiplayer is deferred.
 
