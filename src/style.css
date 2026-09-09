@@ -7,8 +7,15 @@ body {
   margin: 0;
   overflow: hidden;
   background: #000;
+  cursor: url('/game-cursor.svg') 7 4, auto;
 }
 
 canvas {
   display: block;
+}
+
+button,
+a,
+[role='button'] {
+  cursor: url('/game-cursor.svg') 7 4, pointer;
 }
