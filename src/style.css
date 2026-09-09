@@ -7,7 +7,7 @@ body {
   margin: 0;
   overflow: hidden;
   background: #000;
-  cursor: url('/game-cursor.svg') 7 4, auto;
+  cursor: url('/game-cursor.svg') 4 2, auto;
 }
 
 canvas {
@@ -17,5 +17,5 @@ canvas {
 button,
 a,
 [role='button'] {
-  cursor: url('/game-cursor.svg') 7 4, pointer;
+  cursor: url('/game-cursor.svg') 4 2, pointer;
 }
