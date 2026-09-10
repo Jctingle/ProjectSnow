@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createUnitPegMaterial } from '../../../render/unitPeg';
+import { SUBCELLS_PER_CELL } from './interiorMath';
 
-const MACHINE_COLOR = 0x8899aa;
 const PRODUCT_COLOR = 0xffdd33;
 const BELOW_LEVEL_OPACITY = 0.22;
 
@@ -13,9 +13,12 @@ export type InteriorLevelView = {
   productMaterial: THREE.MeshStandardMaterial;
   unitMaterial: THREE.MeshStandardMaterial;
   positions: Float32Array;
+  /// Subcell span per axis, so a merged machine renders as one stretched box.
+  scales: Float32Array;
   cells: Uint32Array;
   slots: Int32Array;
   count: number;
+  machineCapacity: number;
   unitCount: number;
   unitCapacity: number;
 };
@@ -25,17 +28,19 @@ type CreateInteriorLevelOptions = {
   machineGeometry: THREE.BoxGeometry;
   productGeometry: THREE.SphereGeometry;
   unitGeometry: THREE.CylinderGeometry;
-  capacity: number;
+  cellCapacity: number;
   y: number;
 };
 
 export function createInteriorLevel(
   options: CreateInteriorLevelOptions,
 ): InteriorLevelView {
-  const { group, machineGeometry, productGeometry, unitGeometry, capacity, y } = options;
+  const { group, machineGeometry, productGeometry, unitGeometry, cellCapacity, y } = options;
 
+  // White base so per-instance colours from the machine catalogue survive the
+  // multiply the standard material applies.
   const machineMaterial = new THREE.MeshStandardMaterial({
-    color: MACHINE_COLOR,
+    color: 0xffffff,
     transparent: true,
     opacity: 0.9,
   });
@@ -51,10 +56,11 @@ export function createInteriorLevel(
   unitMaterial.depthTest = false;
   unitMaterial.transparent = true;
   unitMaterial.opacity = 0.95;
-  const unitCapacity = Math.max(1, capacity * 4);
+  const machineCapacity = Math.max(1, cellCapacity * SUBCELLS_PER_CELL);
+  const unitCapacity = Math.max(1, cellCapacity * 4);
 
-  const machines = new THREE.InstancedMesh(machineGeometry, machineMaterial, capacity);
-  const products = new THREE.InstancedMesh(productGeometry, productMaterial, capacity);
+  const machines = new THREE.InstancedMesh(machineGeometry, machineMaterial, machineCapacity);
+  const products = new THREE.InstancedMesh(productGeometry, productMaterial, machineCapacity);
   const units = new THREE.InstancedMesh(unitGeometry, unitMaterial, unitCapacity);
   machines.count = 0;
   products.count = 0;
@@ -77,10 +83,12 @@ export function createInteriorLevel(
     machineMaterial,
     productMaterial,
     unitMaterial,
-    positions: new Float32Array(capacity * 3),
-    cells: new Uint32Array(capacity),
-    slots: new Int32Array(capacity).fill(-1),
+    positions: new Float32Array(machineCapacity * 3),
+    scales: new Float32Array(machineCapacity * 3),
+    cells: new Uint32Array(machineCapacity),
+    slots: new Int32Array(machineCapacity).fill(-1),
     count: 0,
+    machineCapacity,
     unitCount: 0,
     unitCapacity,
   };

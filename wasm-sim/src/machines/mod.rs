@@ -14,16 +14,35 @@
 mod tests;
 
 use crate::lattice::{Dir, Lattice};
+use crate::subgrid::Subgrid;
 use wasm_bindgen::prelude::*;
 
+/// Open registry of machine types. Discriminants are part of the save format,
+/// so new kinds append rather than renumber.
 #[wasm_bindgen]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MachineKind {
     Plain = 0,
+    Alpha = 1,
+    Beta = 2,
 }
 
 // Storage stays `u8` for zero-copy views; the enum is the boundary type.
 pub const MACHINE_PLAIN: u8 = MachineKind::Plain as u8;
+
+/// Two footprints merge only into a larger cube-local box: same size,
+/// non-overlapping, and a union that is itself a box. That confines growth to
+/// the 1/2/4/8 ladder and to orthogonal pairings, vertical included, without
+/// enumerating shapes.
+pub fn footprints_can_join(a: u8, b: u8) -> bool {
+    a != 0
+        && b != 0
+        && a & b == 0
+        && a.count_ones() == b.count_ones()
+        && Subgrid::footprint_is_box(a)
+        && Subgrid::footprint_is_box(b)
+        && Subgrid::footprint_is_box(a | b)
+}
 
 pub const NO_PRODUCT: u8 = 0;
 pub const PRODUCT_DEFAULT: u8 = 1;
@@ -199,6 +218,31 @@ impl MachineGrid {
             NO_MACHINE => None,
             slot => Some(slot as usize),
         }
+    }
+
+    pub fn slot_by_id(&self, machine_id: u32) -> Option<usize> {
+        self.machine_ids.iter().position(|&id| id == machine_id)
+    }
+
+    /// Ascending slot order, so any policy that scans a cell resolves ties the
+    /// same way on every run.
+    pub fn slots_in_cell(&self, cell: usize) -> Vec<usize> {
+        (0..self.parent_cells.len())
+            .filter(|&slot| self.parent_cells[slot] as usize == cell)
+            .collect()
+    }
+
+    /// Reallocates like `retain`, so any JS view must re-read the pointer.
+    pub fn remove_slot(&mut self, slot: usize) {
+        self.machine_ids.remove(slot);
+        self.parent_cells.remove(slot);
+        self.footprints.remove(slot);
+        self.kinds.remove(slot);
+        self.output_faces.remove(slot);
+        self.holding.remove(slot);
+        self.incoming.remove(slot);
+        self.outgoing.remove(slot);
+        self.reindex();
     }
 
     pub fn holding_at_cell(&self, cell: usize) -> u8 {

@@ -2,14 +2,18 @@ import * as THREE from 'three';
 import {
   getApcInterior,
   getApcMachineCells,
+  getApcMachineFootprints,
   getApcMachineHolding,
+  getApcMachineKinds,
   getInteriorUnitCells,
   getInteriorUnitIds,
   getInteriorUnitSubcells,
 } from '../../../entityStore';
+import { machineColorForKind } from '../machines/machineCatalog';
 import {
   cellCentre,
   displayInteriorLevel,
+  footprintTransform,
   subcellOffset,
   type InteriorHull,
 } from './interiorMath';
@@ -20,15 +24,18 @@ import {
 
 const EMPTY_CELL = 0xffffffff;
 const EMPTY_SUBCELL = 0xff;
+const instanceColor = new THREE.Color();
 
 type RebuildInteriorLevelsOptions = {
   group: THREE.Group;
   hull: InteriorHull;
+  size: number;
   machineGeometry: THREE.BoxGeometry;
   productGeometry: THREE.SphereGeometry;
   unitGeometry: THREE.CylinderGeometry;
   scratchMatrix: THREE.Matrix4;
   scratchPosition: THREE.Vector3;
+  scratchOffset: THREE.Vector3;
   identityQuaternion: THREE.Quaternion;
   scratchScale: THREE.Vector3;
 };
@@ -53,17 +60,19 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
   const {
     group,
     hull,
+    size,
     machineGeometry,
     productGeometry,
     unitGeometry,
     scratchMatrix,
     scratchPosition,
+    scratchOffset,
     identityQuaternion,
     scratchScale,
   } = options;
 
   const levels: InteriorLevelView[] = [];
-  const capacity = Math.max(1, hull.w * hull.d);
+  const cellCapacity = Math.max(1, hull.w * hull.d);
   for (let y = 0; y < hull.h; y += 1) {
     levels.push(
       createInteriorLevel({
@@ -71,7 +80,7 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
         machineGeometry,
         productGeometry,
         unitGeometry,
-        capacity,
+        cellCapacity,
         y,
       }),
     );
@@ -80,6 +89,8 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
   const interior = getApcInterior();
   const count = interior.machine_count();
   const cells = getApcMachineCells();
+  const footprints = getApcMachineFootprints();
+  const kinds = getApcMachineKinds();
   const envelopeW = interior.envelope_w();
   const envelopeD = interior.envelope_d();
   const levelStride = envelopeW * envelopeD;
@@ -92,7 +103,8 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
     const z = Math.floor(remainder / envelopeW);
 
     const target = levels[displayInteriorLevel(y)];
-    if (!target || target.count >= capacity) continue;
+    if (!target || target.count >= target.machineCapacity) continue;
+    if (!footprintTransform(footprints[slot], size, scratchOffset, scratchScale)) continue;
 
     const local = target.count;
     target.count += 1;
@@ -100,12 +112,17 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
     target.cells[local] = cell;
 
     cellCentre(x, y, z, hull, scratchPosition);
+    scratchPosition.add(scratchOffset);
     target.positions[local * 3] = scratchPosition.x;
     target.positions[local * 3 + 1] = scratchPosition.y;
     target.positions[local * 3 + 2] = scratchPosition.z;
+    target.scales[local * 3] = scratchScale.x;
+    target.scales[local * 3 + 1] = scratchScale.y;
+    target.scales[local * 3 + 2] = scratchScale.z;
 
-    scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(1, 1, 1));
+    scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale);
     target.machines.setMatrixAt(local, scratchMatrix);
+    target.machines.setColorAt(local, instanceColor.setHex(machineColorForKind(kinds[slot])));
     scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale.set(0, 0, 0));
     target.products.setMatrixAt(local, scratchMatrix);
   }
@@ -115,6 +132,7 @@ export function rebuildInteriorLevels(options: RebuildInteriorLevelsOptions): In
     level.products.count = level.count;
     level.machines.instanceMatrix.needsUpdate = true;
     level.products.instanceMatrix.needsUpdate = true;
+    if (level.machines.instanceColor) level.machines.instanceColor.needsUpdate = true;
   }
 
   return levels;

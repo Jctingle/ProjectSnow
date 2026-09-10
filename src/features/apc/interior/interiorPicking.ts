@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getApcInterior } from '../../../entityStore';
-import { cellCentre, cellToCoords, type InteriorHull } from './interiorMath';
+import { cellCentre, cellToCoords, subcellLocalIndex, type InteriorHull } from './interiorMath';
 
 type PickCellOptions = {
   ndc: THREE.Vector2;
@@ -53,6 +53,12 @@ export function pickInteriorCell(options: PickCellOptions): number {
   return getApcInterior().cell_index(cx, level, cz);
 }
 
+/// Resolves the subcell the cursor is aiming at by anchoring on the face the
+/// ray enters through: the entry face fixes that axis to the subcell just
+/// inside it, and the hit position within the face picks the other two. Reading
+/// the entry point as a raw octant would leave the far half of the cube
+/// unreachable; orbiting to expose a different face is what makes all eight
+/// positions selectable.
 export function pickInteriorSubcell(options: PickSubcellOptions): number {
   const {
     ndc,
@@ -93,11 +99,34 @@ export function pickInteriorSubcell(options: PickSubcellOptions): number {
 
   if (!localRay.intersectBox(scratchBox, scratchHit)) return -1;
 
-  const relX = Math.min(Math.max((scratchHit.x - scratchBox.min.x) / (size * 0.5), 0), 1.999999);
-  const relY = Math.min(Math.max((scratchHit.y - scratchBox.min.y) / (size * 0.5), 0), 1.999999);
-  const relZ = Math.min(Math.max((scratchHit.z - scratchBox.min.z) / (size * 0.5), 0), 1.999999);
-  const lx = Math.floor(relX);
-  const ly = Math.floor(relY);
-  const lz = Math.floor(relZ);
-  return lx + 2 * (lz + 2 * ly);
+  const hit = [scratchHit.x, scratchHit.y, scratchHit.z];
+  const min = [scratchBox.min.x, scratchBox.min.y, scratchBox.min.z];
+
+  let entryAxis = 0;
+  let entrySide = 0;
+  let closest = Infinity;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const fromMin = Math.abs(hit[axis] - min[axis]);
+    const fromMax = Math.abs(hit[axis] - (min[axis] + size));
+    if (fromMin < closest) {
+      closest = fromMin;
+      entryAxis = axis;
+      entrySide = 0;
+    }
+    if (fromMax < closest) {
+      closest = fromMax;
+      entryAxis = axis;
+      entrySide = 1;
+    }
+  }
+
+  const coord = [0, 0, 0];
+  for (let axis = 0; axis < 3; axis += 1) {
+    coord[axis] =
+      axis === entryAxis
+        ? entrySide
+        : Math.min(Math.max(Math.floor((hit[axis] - min[axis]) / half), 0), 1);
+  }
+
+  return subcellLocalIndex(coord[0], coord[1], coord[2]);
 }

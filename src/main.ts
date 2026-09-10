@@ -13,6 +13,7 @@ import { initInputRouter } from './input/index';
 import { attachFocusOrbitControls } from './input/focusOrbit';
 import { attachFocusFloorControls } from './input/focusFloor';
 import { attachInteriorPicking } from './input/interiorPick';
+import { attachMachinePlacement } from './input/machinePlacement';
 import {
   isFocusMode,
 } from './focusMode';
@@ -99,6 +100,7 @@ subscribeSelectionChanged(() => {
 attachFocusOrbitControls(renderer.domElement);
 attachFocusFloorControls(renderer.domElement);
 attachInteriorPicking(renderer.domElement, camera, apcInteriorView);
+attachMachinePlacement(renderer.domElement, camera, apcInteriorView);
 
 const devPanel = createDevPanel(
   sim,

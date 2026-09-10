@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   cellCentre,
   cellToCoords,
+  footprintTransform,
   subcellOffset,
   type InteriorHull,
 } from './interiorMath';
@@ -13,12 +14,19 @@ type UpdateInteriorSubcellLayerOptions = {
   hull: InteriorHull;
   size: number;
   subcellLayer: THREE.Group;
-  subcellPreviewMeshes: THREE.Mesh[];
-  subcellHoverMesh: THREE.Mesh;
-  subcellSelectMesh: THREE.Mesh;
+  subcellGhostMesh: THREE.Mesh;
+  hoverOutline: THREE.LineSegments;
+  subcellOutline: THREE.LineSegments;
+  machineOutline: THREE.LineSegments;
+  /// Subcell the held machine would drop into, or -1 while nothing is held.
+  ghostSubcell: number;
+  /// Only ever a subcell backed by a machine; -1 otherwise.
   hoveredSubcell: number;
   selectedSubcell: number;
+  /// Footprint of the machine owning the selected subcell, or 0 when none.
+  selectedFootprint: number;
   scratchPosition: THREE.Vector3;
+  scratchScale: THREE.Vector3;
   clearSubcellPicks(): void;
 };
 
@@ -39,6 +47,7 @@ type UpdateInteriorHighlightsOptions = {
   hoveredCell: number;
   level: number;
   hull: InteriorHull;
+  suppressed: boolean;
   scratchPosition: THREE.Vector3;
 };
 
@@ -66,12 +75,16 @@ export function updateInteriorSubcellLayer(options: UpdateInteriorSubcellLayerOp
     hull,
     size,
     subcellLayer,
-    subcellPreviewMeshes,
-    subcellHoverMesh,
-    subcellSelectMesh,
+    subcellGhostMesh,
+    hoverOutline,
+    subcellOutline,
+    machineOutline,
+    ghostSubcell,
     hoveredSubcell,
     selectedSubcell,
+    selectedFootprint,
     scratchPosition,
+    scratchScale,
     clearSubcellPicks,
   } = options;
 
@@ -92,26 +105,50 @@ export function updateInteriorSubcellLayer(options: UpdateInteriorSubcellLayerOp
   subcellLayer.position.copy(scratchPosition);
   subcellLayer.visible = true;
 
-  for (let local = 0; local < 8; local += 1) {
-    subcellOffset(local, size, scratchPosition);
-    subcellPreviewMeshes[local].position.copy(scratchPosition);
+  // Sub-focus draws no standing subcell fills: they hid whatever the player
+  // entered the cube to look at. Only the held machine shows a volume.
+  const holding = ghostSubcell >= 0 && ghostSubcell < 8;
+  if (holding) {
+    subcellOffset(ghostSubcell, size, scratchPosition);
+    subcellGhostMesh.position.copy(scratchPosition);
   }
+  subcellGhostMesh.visible = holding;
 
-  if (selectedSubcell >= 0 && selectedSubcell < 8) {
-    subcellOffset(selectedSubcell, size, scratchPosition);
-    subcellSelectMesh.position.copy(scratchPosition);
-    subcellSelectMesh.visible = true;
-  } else {
-    subcellSelectMesh.visible = false;
-  }
+  const subcellEdge = size * 0.5;
+  // A 1x1x1 machine's two outlines are the same box, so the subcell one nests
+  // inside rather than z-fighting the machine one.
+  const nestedEdge = subcellEdge * 0.86;
 
-  if (hoveredSubcell >= 0 && hoveredSubcell < 8 && hoveredSubcell !== selectedSubcell) {
+  const showHover =
+    !holding && hoveredSubcell >= 0 && hoveredSubcell < 8 && hoveredSubcell !== selectedSubcell;
+  if (showHover) {
     subcellOffset(hoveredSubcell, size, scratchPosition);
-    subcellHoverMesh.position.copy(scratchPosition);
-    subcellHoverMesh.visible = true;
-  } else {
-    subcellHoverMesh.visible = false;
+    hoverOutline.position.copy(scratchPosition);
+    hoverOutline.scale.setScalar(nestedEdge);
   }
+  hoverOutline.visible = showHover;
+
+  const showSelection = !holding && selectedSubcell >= 0 && selectedSubcell < 8;
+  if (showSelection) {
+    subcellOffset(selectedSubcell, size, scratchPosition);
+    subcellOutline.position.copy(scratchPosition);
+    subcellOutline.scale.setScalar(nestedEdge);
+  }
+  subcellOutline.visible = showSelection;
+
+  // The joined machine can span several subcells, so its outline is derived
+  // from the footprint rather than from the clicked subcell.
+  const showMachine =
+    showSelection && footprintTransform(selectedFootprint, size, scratchPosition, scratchScale);
+  if (showMachine) {
+    machineOutline.position.copy(scratchPosition);
+    machineOutline.scale.set(
+      scratchScale.x * subcellEdge,
+      scratchScale.y * subcellEdge,
+      scratchScale.z * subcellEdge,
+    );
+  }
+  machineOutline.visible = showMachine;
 }
 
 export function applyInteriorCubeIsolation(options: ApplyInteriorCubeIsolationOptions): void {
@@ -134,12 +171,13 @@ export function applyInteriorCubeIsolation(options: ApplyInteriorCubeIsolationOp
         current.positions[local * 3 + 1],
         current.positions[local * 3 + 2],
       );
-      const scale = show ? 1 : 0;
-      scratchMatrix.compose(
-        scratchPosition,
-        identityQuaternion,
-        scratchScale.set(scale, scale, scale),
+      scratchScale.set(
+        current.scales[local * 3],
+        current.scales[local * 3 + 1],
+        current.scales[local * 3 + 2],
       );
+      if (!show) scratchScale.set(0, 0, 0);
+      scratchMatrix.compose(scratchPosition, identityQuaternion, scratchScale);
       current.machines.setMatrixAt(local, scratchMatrix);
     }
     current.machines.instanceMatrix.needsUpdate = true;
@@ -154,8 +192,15 @@ export function updateInteriorHighlights(options: UpdateInteriorHighlightsOption
     hoveredCell,
     level,
     hull,
+    suppressed,
     scratchPosition,
   } = options;
+
+  if (suppressed) {
+    selectMesh.visible = false;
+    hoverMesh.visible = false;
+    return;
+  }
 
   placeInteriorHighlight(selectMesh, selectedCell, level, hull, scratchPosition);
   placeInteriorHighlight(

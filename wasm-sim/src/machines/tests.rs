@@ -328,3 +328,40 @@ fn ids_remain_stable_across_retain() {
     assert_eq!(grid.id_of(0), keep);
     assert_eq!(grid.next_machine_id(), drop + 1);
 }
+
+#[test]
+fn joins_only_double_a_box_into_a_bigger_box() {
+    // 1 + 1 along X, then the resulting 2 + 2 along Z, then 4 + 4 upward.
+    assert!(footprints_can_join(0b0000_0001, 0b0000_0010));
+    assert!(footprints_can_join(0b0000_0011, 0b0000_1100));
+    assert!(footprints_can_join(0b0000_1111, 0b1111_0000));
+    // Vertical pairing of two single subcells.
+    assert!(footprints_can_join(0b0000_0001, 0b0001_0000));
+
+    // Diagonal neighbours never form a box.
+    assert!(!footprints_can_join(0b0000_0001, 0b0000_1000));
+    // Mismatched sizes cannot pair.
+    assert!(!footprints_can_join(0b0000_0011, 0b0000_0100));
+    // Overlap and empties are rejected.
+    assert!(!footprints_can_join(0b0000_0011, 0b0000_0010));
+    assert!(!footprints_can_join(0b0000_0001, 0));
+}
+
+#[test]
+fn remove_slot_keeps_the_remaining_machines_addressable() {
+    let lattice = hull_lattice();
+    let cells = chain_cells(&lattice);
+    let mut grid = MachineGrid::new(lattice.cell_count(), 1);
+    let first = grid.add_machine_with_footprint(cells[0], 0b0000_0001, MACHINE_PLAIN, NO_OUTPUT);
+    let second = grid.add_machine_with_footprint(cells[0], 0b0000_0010, MACHINE_PLAIN, NO_OUTPUT);
+    let other = grid.add_machine_with_footprint(cells[1], 0b0000_0001, MACHINE_PLAIN, NO_OUTPUT);
+
+    assert_eq!(grid.slots_in_cell(cells[0]).len(), 2);
+
+    grid.remove_slot(grid.slot_by_id(first).unwrap());
+
+    assert_eq!(grid.machine_count(), 2);
+    assert!(grid.slot_by_id(first).is_none());
+    assert_eq!(grid.slots_in_cell(cells[0]), vec![grid.slot_by_id(second).unwrap()]);
+    assert_eq!(grid.slot_at_cell(cells[1]), grid.slot_by_id(other));
+}

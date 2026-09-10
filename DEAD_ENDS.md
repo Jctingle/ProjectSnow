@@ -9,6 +9,7 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 - Interior unit profile data model is in place (ids, stats, specialization, equipment slots, inventory fields), but full gameplay loops for upgrades, inventory use, and equipment effects are not built.
 - Interior unit lifecycle states are in place (boarded, deployed, returning, boarding), but world mission behavior is still represented by a timed sortie flow rather than full authoritative per-unit world simulation.
 - Interior unit machine-assignment state exists, but assignment-driven behavior and machine-operation gameplay are not fully implemented.
+- Machine placement and same-kind joining are playable inside sub-focus (catalogue kinds A and B, 1/2/4/8 subcell footprints), but machines still have no behavior beyond adjacency product transfer: placed machines get no output face, cannot be removed or split, and no kind carries distinct rules.
 - APC interior rendering/input internals are now split across focused helper modules, but the remaining facade still reflects a rendering-first debug surface rather than a finalized gameplay-authoritative interior system.
 
 ## Save And Persistence Gaps

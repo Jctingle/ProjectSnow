@@ -25,6 +25,7 @@ import {
   syncInteriorLevels,
 } from '../features/apc/interior/interiorSync';
 import { APC_GRID_CELL_SIZE } from '../sim/config';
+import { machineAtSubcell, type SubcellMachine } from '../features/apc/machines/machineQuery';
 import { createUnitPegGeometry, UNIT_PEG_Y_OFFSET } from '../render/unitPeg';
 
 const MACHINE_FILL_RATIO = 0.78;
@@ -33,11 +34,19 @@ const HOVER_COLOR = 0x40e0d0;
 const SELECT_COLOR = 0x2266ff;
 const HIGHLIGHT_FILL_RATIO = 0.92;
 const SUBCELL_SIZE_RATIO = 0.48;
-const SUBCELL_FILL_OPACITY = 0.16;
-const SUBCELL_HOVER_COLOR = 0x33fff1;
-const SUBCELL_SELECT_COLOR = 0xff7e29;
+const GHOST_BLOCKED_COLOR = 0xff3b30;
+const SUBCELL_HOVER_OUTLINE_COLOR = 0x8fd8ff;
+const SUBCELL_SELECT_OUTLINE_COLOR = 0x33fff1;
+const MACHINE_SELECT_OUTLINE_COLOR = 0xffc247;
 const UNIT_SELECTION_OUTLINE_COLOR = 0xe0b84f;
 const UNIT_FLOOR_ANCHOR_Y = -APC_GRID_CELL_SIZE * 0.5 + UNIT_PEG_Y_OFFSET;
+
+/// A machine held by the cursor, before it is committed to the sim.
+export type MachinePlacementPreview = {
+  local: number;
+  color: number;
+  valid: boolean;
+};
 
 export type ApcInteriorView = {
   group: THREE.Group;
@@ -51,8 +60,10 @@ export type ApcInteriorView = {
   pickSubcell(ndc: THREE.Vector2, camera: THREE.Camera): number;
   setHoveredCell(cell: number): void;
   setSelectedCell(cell: number): void;
+  /// Ignored unless the subcell holds a machine; selection is a machine probe.
   setHoveredSubcell(local: number): void;
   setSelectedSubcell(local: number): void;
+  setMachinePlacementPreview(preview: MachinePlacementPreview | null): void;
   selectedCell(): number;
   selectedSubcell(): number;
   setSelectedUnit(unitId: number | null): void;
@@ -65,10 +76,12 @@ export function createApcInteriorView(): ApcInteriorView {
   group.name = 'apc-interior';
 
   const size = APC_GRID_CELL_SIZE;
+  // One subcell box, scaled by the machine footprint span at instance time, so
+  // a 1x1x1 and a merged 2x2x2 share a single instanced mesh.
   const machineGeometry = new THREE.BoxGeometry(
-    size * MACHINE_FILL_RATIO,
-    size * MACHINE_FILL_RATIO,
-    size * MACHINE_FILL_RATIO,
+    size * 0.5 * MACHINE_FILL_RATIO,
+    size * 0.5 * MACHINE_FILL_RATIO,
+    size * 0.5 * MACHINE_FILL_RATIO,
   );
   const productGeometry = new THREE.SphereGeometry(size * PRODUCT_FILL_RATIO * 0.5, 10, 8);
   const unitGeometry = createUnitPegGeometry();
@@ -99,6 +112,8 @@ export function createApcInteriorView(): ApcInteriorView {
   let cubeFocusCell: number | null = null;
   let hoveredSubcell = -1;
   let selectedSubcell = -1;
+  let selectedMachine: SubcellMachine | null = null;
+  let placementPreview: MachinePlacementPreview | null = null;
 
   const highlightGeometry = new THREE.BoxGeometry(
     size * HIGHLIGHT_FILL_RATIO,
@@ -149,53 +164,47 @@ export function createApcInteriorView(): ApcInteriorView {
   subcellLayer.renderOrder = 901;
   group.add(subcellLayer);
 
-  const subcellPreviewMeshes: THREE.Mesh[] = [];
-  for (let i = 0; i < 8; i += 1) {
-    const mesh = new THREE.Mesh(
-      subcellGeometry,
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff,
+  const subcellGhostMesh = new THREE.Mesh(
+    subcellGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.55,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  subcellGhostMesh.visible = false;
+  subcellGhostMesh.renderOrder = 902;
+  subcellLayer.add(subcellGhostMesh);
+
+  // Unit cube edges, scaled per use, so one geometry covers both a single
+  // subcell and a merged machine's full footprint.
+  const outlineGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+  const makeOutline = (color: number, opacity: number): THREE.LineSegments => {
+    const lines = new THREE.LineSegments(
+      outlineGeometry,
+      new THREE.LineBasicMaterial({
+        color,
         transparent: true,
-        opacity: SUBCELL_FILL_OPACITY,
+        opacity,
         depthTest: false,
         depthWrite: false,
       }),
     );
-    subcellLayer.add(mesh);
-    subcellPreviewMeshes.push(mesh);
-  }
-
-  const subcellHoverMesh = new THREE.Mesh(
-    subcellGeometry,
-    new THREE.MeshBasicMaterial({
-      color: SUBCELL_HOVER_COLOR,
-      transparent: true,
-      opacity: 0.5,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  subcellHoverMesh.visible = false;
-  subcellLayer.add(subcellHoverMesh);
-
-  const subcellSelectMesh = new THREE.Mesh(
-    subcellGeometry,
-    new THREE.MeshBasicMaterial({
-      color: SUBCELL_SELECT_COLOR,
-      transparent: true,
-      opacity: 0.6,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  subcellSelectMesh.visible = false;
-  subcellLayer.add(subcellSelectMesh);
+    lines.visible = false;
+    lines.renderOrder = 903;
+    subcellLayer.add(lines);
+    return lines;
+  };
+  const hoverOutline = makeOutline(SUBCELL_HOVER_OUTLINE_COLOR, 0.55);
+  const subcellOutline = makeOutline(SUBCELL_SELECT_OUTLINE_COLOR, 0.95);
+  const machineOutline = makeOutline(MACHINE_SELECT_OUTLINE_COLOR, 0.95);
 
   function clearSubcellPicks(): void {
     hoveredSubcell = -1;
     selectedSubcell = -1;
-    subcellHoverMesh.visible = false;
-    subcellSelectMesh.visible = false;
+    selectedMachine = null;
   }
 
   function updateSubcellLayer(): void {
@@ -205,12 +214,16 @@ export function createApcInteriorView(): ApcInteriorView {
       hull,
       size,
       subcellLayer,
-      subcellPreviewMeshes,
-      subcellHoverMesh,
-      subcellSelectMesh,
+      subcellGhostMesh,
+      hoverOutline,
+      subcellOutline,
+      machineOutline,
+      ghostSubcell: placementPreview?.local ?? -1,
       hoveredSubcell,
       selectedSubcell,
+      selectedFootprint: selectedMachine?.footprint ?? 0,
       scratchPosition,
+      scratchScale,
       clearSubcellPicks,
     });
   }
@@ -236,6 +249,9 @@ export function createApcInteriorView(): ApcInteriorView {
       hoveredCell,
       level,
       hull,
+      // The cell-sized highlight blankets the cube it marks, so sub-focus
+      // drops it rather than looking through it.
+      suppressed: cubeFocusCell !== null,
       scratchPosition,
     });
   }
@@ -280,6 +296,14 @@ export function createApcInteriorView(): ApcInteriorView {
     applyInteriorVisibility(levels, level, subfocusEnabled, exteriorUnitsVisible);
   }
 
+  /// A join replaces the machine under the cursor with a larger one, so the
+  /// selection is re-resolved from the subcell rather than kept by id.
+  function refreshSelectedMachine(): void {
+    if (cubeFocusCell === null || selectedSubcell < 0) return;
+    selectedMachine = machineAtSubcell(cubeFocusCell, selectedSubcell);
+    if (!selectedMachine) selectedSubcell = -1;
+  }
+
   function buildLabels(): void {
     clearLabels();
     const texture = buildInteriorLabelTexture(hull, level);
@@ -307,16 +331,19 @@ export function createApcInteriorView(): ApcInteriorView {
     levels = rebuildInteriorLevels({
       group,
       hull,
+      size,
       machineGeometry,
       productGeometry,
       unitGeometry,
       scratchMatrix,
       scratchPosition,
+      scratchOffset,
       identityQuaternion,
       scratchScale,
     });
 
     applyVisibility();
+    refreshSelectedMachine();
     applyCubeIsolation();
     buildLabels();
     updateHighlights();
@@ -373,7 +400,9 @@ export function createApcInteriorView(): ApcInteriorView {
       const next = cell !== null && cell >= 0 ? cell : null;
       if (next === cubeFocusCell) return;
       cubeFocusCell = next;
+      if (next === null) placementPreview = null;
       clearSubcellPicks();
+      updateHighlights();
       applyCubeIsolation();
     },
     pickCell,
@@ -405,13 +434,27 @@ export function createApcInteriorView(): ApcInteriorView {
       updateHighlights();
     },
     setHoveredSubcell(local: number) {
-      if (local === hoveredSubcell) return;
-      hoveredSubcell = local;
+      const next =
+        cubeFocusCell !== null && machineAtSubcell(cubeFocusCell, local) !== null ? local : -1;
+      if (next === hoveredSubcell) return;
+      hoveredSubcell = next;
       updateSubcellLayer();
     },
     setSelectedSubcell(local: number) {
-      if (local === selectedSubcell) return;
-      selectedSubcell = local;
+      const machine = cubeFocusCell === null ? null : machineAtSubcell(cubeFocusCell, local);
+      const next = machine ? local : -1;
+      if (next === selectedSubcell && machine?.footprint === selectedMachine?.footprint) return;
+      selectedSubcell = next;
+      selectedMachine = machine;
+      updateSubcellLayer();
+    },
+    setMachinePlacementPreview(preview: MachinePlacementPreview | null) {
+      placementPreview = preview;
+      if (preview) {
+        const material = subcellGhostMesh.material as THREE.MeshBasicMaterial;
+        material.color.setHex(preview.valid ? preview.color : GHOST_BLOCKED_COLOR);
+        material.opacity = preview.valid ? 0.55 : 0.35;
+      }
       updateSubcellLayer();
     },
     selectedCell: () => selectedCell,
@@ -434,13 +477,14 @@ export function createApcInteriorView(): ApcInteriorView {
       unitGeometry.dispose();
       highlightGeometry.dispose();
       subcellGeometry.dispose();
+      outlineGeometry.dispose();
       (hoverMesh.material as THREE.Material).dispose();
       (selectMesh.material as THREE.Material).dispose();
-      for (const mesh of subcellPreviewMeshes) {
-        (mesh.material as THREE.Material).dispose();
-      }
-      (subcellHoverMesh.material as THREE.Material).dispose();
-      (subcellSelectMesh.material as THREE.Material).dispose();
+      (subcellGhostMesh.material as THREE.Material).dispose();
+      (hoverOutline.material as THREE.Material).dispose();
+      (subcellOutline.material as THREE.Material).dispose();
+      (machineOutline.material as THREE.Material).dispose();
+      (subcellGhostMesh.material as THREE.Material).dispose();
       (selectedUnitOutline.material as THREE.Material).dispose();
     },
   };

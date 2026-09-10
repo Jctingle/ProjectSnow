@@ -11,8 +11,10 @@ use wasm_bindgen::prelude::*;
 mod tests;
 
 use crate::lattice::{Dims, Dir, Lattice, CELL_INTERIOR, CELL_OUTSIDE};
-use crate::machines::{MachineGrid, MachineKind, FULL_CUBE_FOOTPRINT, NO_OUTPUT, PRODUCT_DEFAULT};
-use crate::subgrid::{Subgrid, OCCUPANT_MACHINE, OCCUPANT_UNIT};
+use crate::machines::{
+    footprints_can_join, MachineGrid, MachineKind, FULL_CUBE_FOOTPRINT, NO_OUTPUT, PRODUCT_DEFAULT,
+};
+use crate::subgrid::{Subgrid, OCCUPANT_MACHINE, OCCUPANT_UNIT, SUBCELLS_PER_CELL};
 
 const FLOOR_SUBCELLS_PER_CELL: usize = 4;
 const EMPTY_UNIT_SLOT_ID: u32 = u32::MAX;
@@ -420,6 +422,34 @@ impl ApcInterior {
     /// Separate entry point so no "none" sentinel has to cross the boundary.
     pub fn add_machine_without_output(&mut self, cell: usize, kind: MachineKind) -> bool {
         self.insert_machine(cell, kind, NO_OUTPUT)
+    }
+
+    /// Places a one-subcell machine, then folds it into any same-kind machine
+    /// in the same cell it can legally join with. Returns the surviving
+    /// machine id, or `-1` when the subcell is unavailable.
+    pub fn place_machine_at_subcell(&mut self, cell: usize, local: u8, kind: MachineKind) -> i32 {
+        if !self.is_subcell_free(cell, local) {
+            return -1;
+        }
+
+        let footprint = 1u8 << local;
+        let machine_id = self.machines.next_machine_id();
+        if !self.subgrid.reserve_machine(cell, footprint, machine_id) {
+            return -1;
+        }
+        let placed = self
+            .machines
+            .add_machine_with_footprint(cell, footprint, kind as u8, NO_OUTPUT);
+
+        self.join_machines_at(cell, placed) as i32
+    }
+
+    /// Lets JS preview a placement without a speculative mutation.
+    pub fn is_subcell_free(&self, cell: usize, local: u8) -> bool {
+        (local as usize) < SUBCELLS_PER_CELL
+            && cell < self.lattice.cell_count()
+            && self.lattice.cell_kind(cell) == CELL_INTERIOR
+            && self.subgrid.occupant(cell, local as usize).is_none()
     }
 
     pub fn machine_count(&self) -> usize {
@@ -966,6 +996,38 @@ impl ApcInterior {
         self.machines
             .add_machine_with_footprint(cell, FULL_CUBE_FOOTPRINT, kind as u8, output_face);
         true
+    }
+
+    /// Merges repeatedly rather than once: a 1+1 join can immediately qualify
+    /// for a 2+2 join, and so on up to the full cube.
+    fn join_machines_at(&mut self, cell: usize, machine_id: u32) -> u32 {
+        let mut current = machine_id;
+        loop {
+            let Some(slot) = self.machines.slot_by_id(current) else {
+                return current;
+            };
+            let footprint = self.machines.footprint_of(slot);
+            let kind = self.machines.kind_of(slot);
+            let output_face = self.machines.output_face_of(slot);
+
+            let partner = self.machines.slots_in_cell(cell).into_iter().find(|&other| {
+                other != slot
+                    && self.machines.kind_of(other) == kind
+                    && footprints_can_join(footprint, self.machines.footprint_of(other))
+            });
+            let Some(partner_slot) = partner else {
+                return current;
+            };
+
+            let merged = footprint | self.machines.footprint_of(partner_slot);
+            // Drop the higher slot first so the lower index stays valid.
+            self.machines.remove_slot(slot.max(partner_slot));
+            self.machines.remove_slot(slot.min(partner_slot));
+            current = self
+                .machines
+                .add_machine_with_footprint(cell, merged, kind, output_face);
+            self.rebuild_subgrid_from_machines();
+        }
     }
 
     fn rebuild_subgrid_from_machines(&mut self) {

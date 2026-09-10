@@ -40,6 +40,47 @@ export function subcellOffset(local: number, size: number, out: THREE.Vector3): 
   );
 }
 
+export const SUBCELLS_PER_CELL = 8;
+
+/// Mirrors `Subgrid::local_index`: x is bit 0, z is bit 1, y is bit 2.
+export function subcellLocalIndex(x: number, y: number, z: number): number {
+  return x + 2 * (z + 2 * y);
+}
+
+/// Resolves a cube-local footprint bitmask into the offset from the cell centre
+/// and the span, in subcells, of the box it fills. Machines occupy 1, 2, 4, or
+/// 8 subcells, so one instanced subcell box scaled by the span covers them all.
+export function footprintTransform(
+  footprint: number,
+  size: number,
+  outOffset: THREE.Vector3,
+  outSpan: THREE.Vector3,
+): boolean {
+  const min = [2, 2, 2];
+  const max = [-1, -1, -1];
+  let occupied = false;
+
+  for (let local = 0; local < SUBCELLS_PER_CELL; local += 1) {
+    if ((footprint & (1 << local)) === 0) continue;
+    occupied = true;
+    const coords = [local & 1, (local >> 2) & 1, (local >> 1) & 1];
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (coords[axis] < min[axis]) min[axis] = coords[axis];
+      if (coords[axis] > max[axis]) max[axis] = coords[axis];
+    }
+  }
+  if (!occupied) return false;
+
+  const quarter = size * 0.25;
+  outOffset.set(
+    (min[0] + max[0] - 1) * quarter,
+    (min[1] + max[1] - 1) * quarter,
+    (min[2] + max[2] - 1) * quarter,
+  );
+  outSpan.set(max[0] - min[0] + 1, max[1] - min[1] + 1, max[2] - min[2] + 1);
+  return true;
+}
+
 export function cellToCoords(cell: number): { x: number; y: number; z: number } | null {
   if (cell < 0) return null;
   const interior = getApcInterior();

@@ -38,6 +38,32 @@ impl Subgrid {
         Some(x + 2 * (z + 2 * y))
     }
 
+    /// True when the occupied bits form a filled axis-aligned box. Written
+    /// over bit positions rather than named axes so it stays correct if
+    /// `local_index` ever reorders them.
+    pub fn footprint_is_box(footprint: u8) -> bool {
+        if footprint == 0 {
+            return false;
+        }
+        let mut used = [[false; 2]; 3];
+        for local in 0..SUBCELLS_PER_CELL {
+            if footprint & (1 << local) == 0 {
+                continue;
+            }
+            for (axis, coords) in used.iter_mut().enumerate() {
+                coords[(local >> axis) & 1] = true;
+            }
+        }
+
+        let mut spanned = 0u8;
+        for local in 0..SUBCELLS_PER_CELL {
+            if used.iter().enumerate().all(|(axis, coords)| coords[(local >> axis) & 1]) {
+                spanned |= 1 << local;
+            }
+        }
+        spanned == footprint
+    }
+
     pub fn index(&self, cell: usize, local: usize) -> Option<usize> {
         if local >= SUBCELLS_PER_CELL {
             return None;
@@ -197,6 +223,20 @@ mod tests {
                 Subgrid::face_local_index(Dir::PosZ, slot).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn footprint_is_box_accepts_only_filled_axis_aligned_boxes() {
+        assert!(Subgrid::footprint_is_box(0b0000_0001));
+        assert!(Subgrid::footprint_is_box(0b0000_0011));
+        assert!(Subgrid::footprint_is_box(0b0001_0001));
+        assert!(Subgrid::footprint_is_box(0b0000_1111));
+        assert!(Subgrid::footprint_is_box(0b1111_1111));
+
+        assert!(!Subgrid::footprint_is_box(0));
+        // Diagonal pair: spans two axes but only fills half the 2x2 slab.
+        assert!(!Subgrid::footprint_is_box(0b0000_1001));
+        assert!(!Subgrid::footprint_is_box(0b0000_0111));
     }
 
     #[test]

@@ -4,6 +4,7 @@ import init, {
   InteriorMoveResult,
   InteriorLifecycleResult,
   InteriorUnitMode,
+  MachineKind,
   Sim,
   UnitSpecialization,
 } from 'wasm-sim';
@@ -34,6 +35,7 @@ export { UnitSpecialization };
 export { InteriorMoveAction, InteriorMoveResult };
 export { InteriorLifecycleResult };
 export { InteriorUnitMode };
+export { MachineKind };
 
 let sim: Sim | null = null;
 let apcInterior: ApcInterior | null = null;
@@ -217,6 +219,7 @@ let machineHoldingCache: U8Cache = null;
 let machineIdsCache: U32Cache = null;
 let machineParentCellsCache: U32Cache = null;
 let machineFootprintsCache: U8Cache = null;
+let machineKindsCache: U8Cache = null;
 let subgridOccupantKindsCache: U8Cache = null;
 let subgridOccupantIdsCache: U32Cache = null;
 let interiorUnitSchemaVersionsCache: U16Cache = null;
@@ -516,6 +519,27 @@ export function getApcMachineFootprints(): Uint8Array {
   if (count === 0) return EMPTY_U8;
   machineFootprintsCache = cacheU8(machineFootprintsCache, interior.machine_footprints_ptr(), count);
   return machineFootprintsCache!.view;
+}
+
+export function getApcMachineKinds(): Uint8Array {
+  const interior = getApcInterior();
+  const count = interior.machine_count();
+  if (count === 0) return EMPTY_U8;
+  machineKindsCache = cacheU8(machineKindsCache, interior.machine_kinds_ptr(), count);
+  return machineKindsCache!.view;
+}
+
+/** Returns the surviving machine id after any join, or -1 when refused. */
+export function placeMachineAtSubcell(
+  cell: number,
+  local: number,
+  kind: MachineKind,
+): number {
+  return getApcInterior().place_machine_at_subcell(cell, local, kind);
+}
+
+export function isSubcellFree(cell: number, local: number): boolean {
+  return getApcInterior().is_subcell_free(cell, local);
 }
 
 

@@ -42,6 +42,7 @@ export function attachInteriorPicking(
     ) {
       dragged = true;
     }
+    // Sub-focus hover is a machine probe, and the view ignores empty subcells.
     if (!toNdc(event)) return;
     if (isCubeFocusMode()) {
       view.setHoveredSubcell(view.pickSubcell(ndc, camera));

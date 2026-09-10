@@ -766,3 +766,189 @@ fn machine_assignment_transitions_are_guarded() {
     );
     assert_eq!(unit_mode(&interior, unit_id), Some(InteriorUnitMode::BoardedIdle as u8));
 }
+
+fn footprints_in_cell(interior: &ApcInterior, cell: usize) -> Vec<u8> {
+    interior
+        .machines
+        .slots_in_cell(cell)
+        .into_iter()
+        .map(|slot| interior.machines.footprint_of(slot))
+        .collect()
+}
+
+#[test]
+fn subcell_placement_rejects_occupied_and_out_of_range_targets() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+
+    assert!(interior.place_machine_at_subcell(cell, 0, MachineKind::Alpha) >= 0);
+    assert_eq!(interior.place_machine_at_subcell(cell, 0, MachineKind::Alpha), -1);
+    assert_eq!(interior.place_machine_at_subcell(cell, 8, MachineKind::Alpha), -1);
+    assert_eq!(interior.place_machine_at_subcell(usize::MAX, 0, MachineKind::Alpha), -1);
+
+    // Outside the hull the cell exists in the envelope but is not interior.
+    let outside = interior.cell_index(DEFAULT_HULL.0, 0, 0);
+    assert_eq!(interior.place_machine_at_subcell(outside, 0, MachineKind::Alpha), -1);
+}
+
+#[test]
+fn adjacent_same_kind_placements_join_into_one_machine() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+
+    interior.place_machine_at_subcell(cell, 0, MachineKind::Alpha);
+    let merged = interior.place_machine_at_subcell(cell, 1, MachineKind::Alpha);
+
+    assert!(merged >= 0);
+    assert_eq!(footprints_in_cell(&interior, cell), vec![0b0000_0011]);
+    assert_eq!(interior.machine_count(), 1);
+}
+
+#[test]
+fn vertical_neighbours_join_but_diagonal_ones_do_not() {
+    let mut stacked = interior();
+    let cell = stacked.cell_index(0, 0, 0);
+
+    stacked.place_machine_at_subcell(cell, 0, MachineKind::Alpha);
+    stacked.place_machine_at_subcell(cell, 4, MachineKind::Alpha);
+    assert_eq!(footprints_in_cell(&stacked, cell), vec![0b0001_0001]);
+
+    let mut diagonal = interior();
+    let other = diagonal.cell_index(0, 0, 1);
+    diagonal.place_machine_at_subcell(other, 0, MachineKind::Alpha);
+    diagonal.place_machine_at_subcell(other, 3, MachineKind::Alpha);
+    assert_eq!(
+        footprints_in_cell(&diagonal, other),
+        vec![0b0000_0001, 0b0000_1000]
+    );
+}
+
+#[test]
+fn different_kinds_share_a_cell_without_joining() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+
+    interior.place_machine_at_subcell(cell, 0, MachineKind::Alpha);
+    interior.place_machine_at_subcell(cell, 1, MachineKind::Beta);
+
+    assert_eq!(
+        footprints_in_cell(&interior, cell),
+        vec![0b0000_0001, 0b0000_0010]
+    );
+}
+
+#[test]
+fn joins_cascade_up_the_size_ladder_to_the_full_cube() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+
+    for local in 0..4u8 {
+        interior.place_machine_at_subcell(cell, local, MachineKind::Alpha);
+    }
+    assert_eq!(footprints_in_cell(&interior, cell), vec![0b0000_1111]);
+
+    for local in 4..8u8 {
+        interior.place_machine_at_subcell(cell, local, MachineKind::Alpha);
+    }
+    assert_eq!(footprints_in_cell(&interior, cell), vec![0b1111_1111]);
+    assert_eq!(interior.machine_count(), 1);
+}
+
+#[test]
+fn joins_never_reach_across_cells() {
+    let mut interior = interior();
+    let left = interior.cell_index(0, 0, 0);
+    let right = interior.cell_index(1, 0, 0);
+
+    interior.place_machine_at_subcell(left, 1, MachineKind::Alpha);
+    interior.place_machine_at_subcell(right, 0, MachineKind::Alpha);
+
+    assert_eq!(interior.machine_count(), 2);
+    assert_eq!(footprints_in_cell(&interior, left), vec![0b0000_0010]);
+    assert_eq!(footprints_in_cell(&interior, right), vec![0b0000_0001]);
+}
+
+#[test]
+fn a_merged_machine_owns_every_subcell_of_its_footprint() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+
+    interior.place_machine_at_subcell(cell, 0, MachineKind::Alpha);
+    let merged = interior.place_machine_at_subcell(cell, 1, MachineKind::Alpha) as u32;
+
+    assert_eq!(interior.subgrid.occupant(cell, 0), Some((OCCUPANT_MACHINE, merged)));
+    assert_eq!(interior.subgrid.occupant(cell, 1), Some((OCCUPANT_MACHINE, merged)));
+    assert_eq!(interior.subgrid.occupant(cell, 2), None);
+    assert!(!interior.is_subcell_free(cell, 1));
+    assert!(interior.is_subcell_free(cell, 2));
+}
+
+#[test]
+fn a_unit_cannot_be_placed_on_a_subcell_machine() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    assert!(interior.place_machine_at_subcell(cell, 2, MachineKind::Alpha) >= 0);
+
+    assert!(!interior.place_interior_unit(unit_id, cell, 2));
+    assert_eq!(unit_at(&interior, unit_id), None);
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+}
+
+#[test]
+fn a_unit_cannot_move_into_a_subcell_machine() {
+    let mut interior = interior();
+    interior.reset_hull_extent(1, 1, 1);
+    let cell = interior.cell_index(0, 0, 0);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+    assert!(interior.place_machine_at_subcell(cell, 1, MachineKind::Alpha) >= 0);
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::BlockedByMachine as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 0)));
+}
+
+#[test]
+fn a_ceiling_machine_leaves_the_floor_walkable() {
+    let mut interior = interior();
+    interior.reset_hull_extent(1, 1, 1);
+    let cell = interior.cell_index(0, 0, 0);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+    assert!(interior.place_machine_at_subcell(cell, 5, MachineKind::Alpha) >= 0);
+
+    let result = interior.try_move_interior_unit(unit_id, InteriorMoveAction::PosX);
+    assert_eq!(result as u8, InteriorMoveResult::Ok as u8);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 1)));
+}
+
+#[test]
+fn spawning_finds_no_slot_once_machines_fill_the_floor() {
+    let mut interior = interior();
+    interior.reset_hull_extent(1, 1, 1);
+    let cell = interior.cell_index(0, 0, 0);
+    for local in 0..4u8 {
+        assert!(interior.place_machine_at_subcell(cell, local, MachineKind::Alpha) >= 0);
+    }
+
+    assert_eq!(
+        interior.spawn_random_interior_unit(UnitSpecialization::Generalist),
+        -1
+    );
+}
+
+#[test]
+fn joining_machines_never_evicts_a_unit_sharing_the_cell() {
+    let mut interior = interior();
+    let cell = interior.cell_index(0, 0, 0);
+    let unit_id = interior.register_interior_unit_profile(UnitSpecialization::Generalist) as u32;
+    assert!(interior.place_interior_unit(unit_id, cell, 0));
+
+    interior.place_machine_at_subcell(cell, 1, MachineKind::Alpha);
+    interior.place_machine_at_subcell(cell, 3, MachineKind::Alpha);
+
+    assert_eq!(footprints_in_cell(&interior, cell), vec![0b0000_1010]);
+    assert_eq!(unit_at(&interior, unit_id), Some((cell, 0)));
+    assert_eq!(interior.subgrid.occupant(cell, 0), Some((OCCUPANT_UNIT, unit_id)));
+}
