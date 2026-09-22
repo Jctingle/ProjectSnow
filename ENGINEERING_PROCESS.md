@@ -37,6 +37,15 @@
 - No per-entity JS to WASM chat loops when batched stepping is possible.
 - No implicit schema drift: state changes should preserve save migration paths.
 
+## Persistence Contract
+
+- Treat restoration as part of every stateful feature's completion criteria. Identify authoritative saved state, derived state to rebuild, and intentionally transient state before implementation.
+- Keep snapshot capture/validation/migration separate from storage transport and UI. Domain owners export/import their state; browser or future server storage must not reconstruct gameplay from rendering data or raw WASM memory dumps.
+- Capture related domains at one consistent simulation boundary. Restore into validated candidate state and publish it together before gameplay starts; failed loads must not partially replace live state or overwrite the existing save.
+- Use explicit format/content versions and stable identifiers. Preserve resume-critical counters, random state, fractional progress, and pending transactions. Never silently treat incompatible or corrupt data as a new game.
+- Save copied snapshots, not live typed-array views. Serialize writes, acknowledge only completed storage transactions, and keep changes made during a write dirty. Define single-writer ownership for a shared save slot.
+- Validate round-trip restoration and continued simulation equivalence, including interrupted work and migrations. A feature that restores its display but changes subsequent gameplay has not met its restoration contract.
+
 ## Documentation Discipline
 
 - Keep this file high-level and durable.
