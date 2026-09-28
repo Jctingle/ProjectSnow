@@ -11,6 +11,7 @@
 - Prefer deterministic structures: stable ids, explicit state transitions, repeatable seeds, and predictable update order.
 - Keep performance intentional: compute-heavy logic belongs in Rust/WASM; JavaScript should orchestrate, not micro-simulate.
 - Preserve single sources of truth: avoid duplicated constants and duplicated state across JS and WASM.
+- Keep configurable gameplay definitions separate from runtime state. Validate versioned content once, share resolved definitions across instances, and require explicit compatibility handling when content changes affect saved work.
 - Keep architecture organized: clear ownership per module, explicit interfaces, and minimal cross-layer leakage.
 - Follow programming standards: readable naming, small focused functions, explicit invariants, and test-backed behavior changes.
 - Retire dead scaffolding when it stops earning its keep: remove inactive toggles, dormant demo paths, and fake fixtures once they no longer provide real verification value.
