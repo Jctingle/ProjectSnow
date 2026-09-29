@@ -40,12 +40,40 @@ type ActiveSortie = {
   preferredBoardLocal: number;
 };
 
+const SORTIE_SNAPSHOT_FORMAT_VERSION = 1;
+const SORTIE_SNAPSHOT_MAX_RECORDS = 1024;
+const SORTIE_SNAPSHOT_MAX_PHASE_MS = 10 * 60 * 1000;
+
+export type SortieSnapshotPhase = SortiePhase;
+
+export type SortieSnapshotRecord = {
+  unitId: number;
+  targetX: number;
+  targetZ: number;
+  phase: SortieSnapshotPhase;
+  phaseElapsedMs: number;
+  phaseRemainingMs: number;
+  outboundStartX: number;
+  outboundStartZ: number;
+  returnStartX: number;
+  returnStartZ: number;
+  preferredBoardCell: number;
+  preferredBoardLocal: number;
+};
+
+type SortieSnapshotEnvelope = {
+  formatVersion: number;
+  records: SortieSnapshotRecord[];
+};
+
 export type UnitSortieController = {
   update(nowMs: number): void;
   shiftBy(dx: number, dz: number): void;
   triggerAtCursor(): void;
   getWorldPosition(unitId: number, out: THREE.Vector3): boolean;
   setSelectedUnit(unitId: number | null): void;
+  captureSnapshot(nowMs: number): SortieSnapshotRecord[];
+  restoreSnapshot(records: SortieSnapshotRecord[], nowMs: number): string | null;
 };
 
 const CELL_INTERIOR = 2;
@@ -60,6 +88,102 @@ function travelDurationMs(fromX: number, fromZ: number, toX: number, toZ: number
   const distance = Math.hypot(toX - fromX, toZ - fromZ);
   const duration = (distance / WORLD_TRAVEL_SPEED) * 1000;
   return Math.max(minMs, duration);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isValidPhase(phase: unknown): phase is SortiePhase {
+  return phase === 'outbound' || phase === 'returning' || phase === 'boarding';
+}
+
+function validateSortieSnapshotRecord(record: SortieSnapshotRecord): string | null {
+  if (!Number.isInteger(record.unitId) || record.unitId < 0) return 'unit id invalid';
+  if (!isValidPhase(record.phase)) return 'sortie phase invalid';
+  if (!isFiniteNumber(record.targetX) || !isFiniteNumber(record.targetZ)) {
+    return 'sortie target invalid';
+  }
+  if (!isFiniteNumber(record.outboundStartX) || !isFiniteNumber(record.outboundStartZ)) {
+    return 'sortie outbound start invalid';
+  }
+  if (!isFiniteNumber(record.returnStartX) || !isFiniteNumber(record.returnStartZ)) {
+    return 'sortie return start invalid';
+  }
+  if (
+    !isFiniteNumber(record.phaseElapsedMs) ||
+    record.phaseElapsedMs < 0 ||
+    record.phaseElapsedMs > SORTIE_SNAPSHOT_MAX_PHASE_MS
+  ) {
+    return 'sortie elapsed duration invalid';
+  }
+  if (
+    !isFiniteNumber(record.phaseRemainingMs) ||
+    record.phaseRemainingMs < 0 ||
+    record.phaseRemainingMs > SORTIE_SNAPSHOT_MAX_PHASE_MS
+  ) {
+    return 'sortie remaining duration invalid';
+  }
+  if (!Number.isInteger(record.preferredBoardCell) || record.preferredBoardCell < 0) {
+    return 'sortie preferred board cell invalid';
+  }
+  if (!Number.isInteger(record.preferredBoardLocal) || record.preferredBoardLocal < 0 || record.preferredBoardLocal > 3) {
+    return 'sortie preferred board local invalid';
+  }
+  return null;
+}
+
+export function serializeSortieSnapshot(records: SortieSnapshotRecord[]): string {
+  const envelope: SortieSnapshotEnvelope = {
+    formatVersion: SORTIE_SNAPSHOT_FORMAT_VERSION,
+    records,
+  };
+  return JSON.stringify(envelope);
+}
+
+export function deserializeSortieSnapshot(snapshotJson: string): {
+  records: SortieSnapshotRecord[] | null;
+  error: string | null;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(snapshotJson);
+  } catch {
+    return { records: null, error: 'sortie snapshot decode failed' };
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { records: null, error: 'sortie snapshot envelope invalid' };
+  }
+
+  const envelope = parsed as Partial<SortieSnapshotEnvelope>;
+  if (envelope.formatVersion !== SORTIE_SNAPSHOT_FORMAT_VERSION) {
+    return { records: null, error: 'unsupported sortie snapshot format version' };
+  }
+  if (!Array.isArray(envelope.records)) {
+    return { records: null, error: 'sortie snapshot records missing' };
+  }
+  if (envelope.records.length > SORTIE_SNAPSHOT_MAX_RECORDS) {
+    return { records: null, error: 'sortie snapshot record count exceeds limit' };
+  }
+
+  const seenUnitIds = new Set<number>();
+  const validated: SortieSnapshotRecord[] = [];
+  for (const rawRecord of envelope.records) {
+    if (!rawRecord || typeof rawRecord !== 'object') {
+      return { records: null, error: 'sortie record invalid' };
+    }
+    const record = rawRecord as SortieSnapshotRecord;
+    const error = validateSortieSnapshotRecord(record);
+    if (error) return { records: null, error };
+    if (seenUnitIds.has(record.unitId)) {
+      return { records: null, error: 'duplicate sortie unit id' };
+    }
+    seenUnitIds.add(record.unitId);
+    validated.push({ ...record });
+  }
+
+  return { records: validated, error: null };
 }
 
 export function createUnitSortieController(
@@ -416,6 +540,68 @@ export function createUnitSortieController(
     setSelectedUnit(unitId: number | null): void {
       selectedUnitId = unitId;
       refreshSelectedOutlineVisibility();
+    },
+    captureSnapshot(nowMs: number): SortieSnapshotRecord[] {
+      return Array.from(activeSorties.values(), (sortie) => {
+        const elapsed = Math.max(0, nowMs - sortie.phaseStartMs);
+        const remaining = Math.max(0, sortie.phaseDeadlineMs - nowMs);
+        return {
+          unitId: sortie.unitId,
+          targetX: sortie.targetX,
+          targetZ: sortie.targetZ,
+          phase: sortie.phase,
+          phaseElapsedMs: elapsed,
+          phaseRemainingMs: remaining,
+          outboundStartX: sortie.outboundStartX,
+          outboundStartZ: sortie.outboundStartZ,
+          returnStartX: sortie.returnStartX,
+          returnStartZ: sortie.returnStartZ,
+          preferredBoardCell: sortie.preferredBoardCell,
+          preferredBoardLocal: sortie.preferredBoardLocal,
+        };
+      });
+    },
+    restoreSnapshot(records: SortieSnapshotRecord[], nowMs: number): string | null {
+      if (records.length > SORTIE_SNAPSHOT_MAX_RECORDS) {
+        return 'sortie snapshot record count exceeds limit';
+      }
+
+      const validatedSorties = new Map<number, ActiveSortie>();
+      for (const record of records) {
+        const error = validateSortieSnapshotRecord(record);
+        if (error) return error;
+        if (validatedSorties.has(record.unitId)) {
+          return 'duplicate sortie unit id';
+        }
+
+        const phaseStartMs = nowMs - record.phaseElapsedMs;
+        const phaseDeadlineMs = nowMs + record.phaseRemainingMs;
+        validatedSorties.set(record.unitId, {
+          unitId: record.unitId,
+          targetX: record.targetX,
+          targetZ: record.targetZ,
+          phase: record.phase,
+          phaseStartMs,
+          phaseDeadlineMs,
+          outboundStartX: record.outboundStartX,
+          outboundStartZ: record.outboundStartZ,
+          returnStartX: record.returnStartX,
+          returnStartZ: record.returnStartZ,
+          preferredBoardCell: record.preferredBoardCell,
+          preferredBoardLocal: record.preferredBoardLocal,
+        });
+      }
+
+      for (const unitId of activeSorties.keys()) {
+        hideSortieMesh(unitId);
+      }
+      activeSorties.clear();
+      for (const [unitId, sortie] of validatedSorties) {
+        activeSorties.set(unitId, sortie);
+      }
+      rebuildMarkers();
+      refreshSelectedOutlineVisibility();
+      return null;
     },
   };
 }

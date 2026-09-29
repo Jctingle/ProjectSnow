@@ -119,12 +119,41 @@ impl Apc {
         self.target_requires_shard_crossing = requires_shard_crossing;
     }
 
+    pub fn restore_state(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        target_x: f32,
+        target_z: f32,
+        speed: f32,
+        cliff_threshold_deg: f32,
+        target_requires_shard_crossing: bool,
+    ) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+        self.target_x = target_x;
+        self.target_z = target_z;
+        self.speed = speed;
+        self.cliff_threshold_deg = cliff_threshold_deg;
+        self.target_requires_shard_crossing = target_requires_shard_crossing;
+    }
+
     pub fn set_speed(&mut self, v: f32) {
         self.speed = v;
     }
 
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
     pub fn set_cliff_threshold_deg(&mut self, v: f32) {
         self.cliff_threshold_deg = v;
+    }
+
+    pub fn cliff_threshold_deg(&self) -> f32 {
+        self.cliff_threshold_deg
     }
 
     pub fn rebase(&mut self, dx: f32, dz: f32) {
@@ -156,6 +185,10 @@ impl Apc {
 
     pub fn target_z(&self) -> f32 {
         self.target_z
+    }
+
+    pub fn target_requires_shard_crossing(&self) -> bool {
+        self.target_requires_shard_crossing
     }
 
     pub fn touch_radius(&self) -> f32 {

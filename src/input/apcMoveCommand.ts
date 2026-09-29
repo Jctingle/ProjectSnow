@@ -50,6 +50,26 @@ export function shiftApcWaypointQueue(dx: number, dz: number): void {
   }
 }
 
+export function rebuildApcWaypointQueueFromSimTarget(
+  destinationMarker: DestinationMarkerController,
+): void {
+  const sim = getSim();
+  waypointQueue = [];
+
+  const targetX = sim.apc_target_x();
+  const targetZ = sim.apc_target_z();
+  const dx = targetX - sim.apc_x();
+  const dz = targetZ - sim.apc_z();
+  const touchRadius = sim.apc_touch_radius();
+  const movingToTarget = dx * dx + dz * dz > touchRadius * touchRadius;
+
+  if (movingToTarget) {
+    waypointQueue.push({ x: targetX, z: targetZ });
+  }
+
+  destinationMarker.rebuild(getApcWaypointQueue(), sim.apc_y());
+}
+
 function resolveShardForPoint(x: number, z: number): ShardResolution {
   const sim = getSim();
   const halfExtent = GROUND_SIZE * 0.5;

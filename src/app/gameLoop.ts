@@ -41,6 +41,7 @@ type GameLoopOptions = {
   terrainRing: TerrainRingController;
   focusUi: FocusUiController;
   generationUi: GenerationUiController;
+  onSimStep?: () => void;
 };
 
 export function startGameLoop(options: GameLoopOptions): void {
@@ -57,6 +58,7 @@ export function startGameLoop(options: GameLoopOptions): void {
     terrainRing,
     focusUi,
     generationUi,
+    onSimStep,
   } = options;
 
   const focusTarget = new THREE.Vector3();
@@ -76,6 +78,7 @@ export function startGameLoop(options: GameLoopOptions): void {
 
     while (accumulator >= SIM_RATE) {
       tick(SIM_RATE);
+      onSimStep?.();
       accumulator -= SIM_RATE;
     }
 

@@ -258,6 +258,62 @@ impl Terrain {
         self.tier_height_scale = v;
     }
 
+    pub fn noise_scale(&self) -> f64 {
+        self.scale
+    }
+
+    pub fn crag_strength(&self) -> f32 {
+        self.crag_strength
+    }
+
+    pub fn crag_freq(&self) -> f64 {
+        self.crag_freq
+    }
+
+    pub fn sweep_scale(&self) -> f64 {
+        self.sweep_scale
+    }
+
+    pub fn sweep_amp(&self) -> f32 {
+        self.sweep_amp
+    }
+
+    pub fn tier_height_scale(&self) -> f32 {
+        self.tier_height_scale
+    }
+
+    pub fn base_seed_x(&self) -> f64 {
+        self.base_seed_x
+    }
+
+    pub fn base_seed_y(&self) -> f64 {
+        self.base_seed_y
+    }
+
+    pub fn seed_x(&self) -> f64 {
+        self.seed_x
+    }
+
+    pub fn seed_y(&self) -> f64 {
+        self.seed_y
+    }
+
+    pub fn heightmap_width(&self) -> usize {
+        self.hm_width
+    }
+
+    pub fn heightmap_height(&self) -> usize {
+        self.hm_height
+    }
+
+    pub fn heightmap_world_width(&self) -> f32 {
+        self.hm_half_w * 2.0
+    }
+
+    pub fn heightmap_world_height(&self) -> f32 {
+        self.hm_half_h * 2.0
+    }
+
     pub fn half_extent(&self) -> f32 {
         self.hm_half_w
     }

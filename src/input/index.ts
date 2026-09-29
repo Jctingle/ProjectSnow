@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getSim } from '../entityStore';
 import {
   attachApcMoveCommand,
+  rebuildApcWaypointQueueFromSimTarget,
   getApcWaypointQueue,
   shiftApcWaypointQueue,
   updateApcWaypointQueue,
@@ -9,13 +10,15 @@ import {
 import { attachClickSelect } from './clickSelect';
 import { createDestinationMarkerController, createSortieMarkerController } from './destinationMarker';
 import { attachKeyboardShortcuts, setSortieCommandHandler } from './keyboard';
-import { createUnitSortieController } from './unitSortieCommand';
+import { createUnitSortieController, type SortieSnapshotRecord } from './unitSortieCommand';
 
 export type InputRouterController = {
   update(): void;
   shiftDestinationMarker(dx: number, dz: number): void;
   getWorldUnitPosition(unitId: number, out: THREE.Vector3): boolean;
   setSelectedUnit(unitId: number | null): void;
+  captureSortieSnapshot(nowMs: number): SortieSnapshotRecord[];
+  restoreSortieSnapshot(records: SortieSnapshotRecord[], nowMs: number): string | null;
 };
 
 export function initInputRouter(
@@ -29,6 +32,7 @@ export function initInputRouter(
 
   attachClickSelect(camera, renderer);
   attachApcMoveCommand(camera, renderer, destinationMarker);
+  rebuildApcWaypointQueueFromSimTarget(destinationMarker);
   setSortieCommandHandler(() => sortieController.triggerAtCursor());
   attachKeyboardShortcuts();
 
@@ -48,5 +52,8 @@ export function initInputRouter(
     setSelectedUnit: (unitId: number | null) => {
       sortieController.setSelectedUnit(unitId);
     },
+    captureSortieSnapshot: (nowMs: number) => sortieController.captureSnapshot(nowMs),
+    restoreSortieSnapshot: (records: SortieSnapshotRecord[], nowMs: number) =>
+      sortieController.restoreSnapshot(records, nowMs),
   };
 }

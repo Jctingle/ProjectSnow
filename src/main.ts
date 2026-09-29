@@ -27,20 +27,58 @@ import { createUnitRosterPanel } from './ui/unitRosterPanel';
 import { registerTopBarChoiceSet } from './ui/windowToggleBar';
 import { createApcMesh, resizeApcMesh, setApcGridVisible, setApcHullVisible } from './world/apc';
 import { createApcInteriorView } from './world/apcInterior';
+import { captureSnapshotBundlePaced } from './save/snapshotRoundTrip';
+import { createSnapshotValidationQueue } from './save/snapshotValidationQueue';
+import { restoreBeforeStart } from './save/localCheckpoint';
+import { createAutosaveController } from './save/autosaveController';
 
 const { scene, camera, renderer, composer, tiltShift, sim } = await bootstrapApp();
+const apcInterior = getApcInterior();
+const restoreResult = await restoreBeforeStart(sim, apcInterior);
+updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
+
+let saveRevision = restoreResult.revision;
+let saveRecoveryMessage = restoreResult.mode === 'recovery' ? restoreResult.message : null;
 
 let apcGridOn = false;
 const terrainRing = createTerrainRingController(scene, sim);
 const generationUi = createGenerationUiController({ sim });
 
 const inputRouter = initInputRouter(camera, renderer, scene);
+const snapshotValidationQueue = createSnapshotValidationQueue();
+let snapshotRevision = 0;
+
+if (restoreResult.mode === 'loaded' && restoreResult.sortieRecords.length > 0) {
+  const restoreSortieError = inputRouter.restoreSortieSnapshot(
+    restoreResult.sortieRecords,
+    performance.now(),
+  );
+  if (restoreSortieError) {
+    saveRecoveryMessage =
+      `Recovery state: sortie restore failed (${restoreSortieError}). Existing save preserved.`;
+  }
+}
+
+const autosaveController = createAutosaveController({
+  sim,
+  apcInterior,
+  inputRouter,
+  initialRevision: saveRevision,
+  recoveryMessage: saveRecoveryMessage,
+});
+autosaveController.bindLifecycle({
+  windowRef: window,
+  documentRef: document,
+});
 
 // APC
 const apcMesh = createApcMesh();
 scene.add(apcMesh);
-
-const apcInterior = getApcInterior();
+resizeApcMesh(apcMesh, {
+  width: apcInterior.hull_w() * APC_GRID_CELL_SIZE,
+  height: apcInterior.hull_h() * APC_GRID_CELL_SIZE,
+  length: apcInterior.hull_d() * APC_GRID_CELL_SIZE,
+});
 
 const apcInteriorView = createApcInteriorView();
 apcMesh.add(apcInteriorView.group);
@@ -80,6 +118,7 @@ regenButton.addEventListener('click', () => {
   seedLabel.textContent = `seed: ${seed}`;
   console.log('[terrain] regenerated with seed', seed);
   terrainRing.rebuildGroundMesh();
+  autosaveController.markDirty('terrain-regenerated');
 });
 
 const focusUi = createFocusUiController({
@@ -107,6 +146,7 @@ const devPanel = createDevPanel(
   () => {
     refreshHeightmap();
     terrainRing.rebuildGroundMesh();
+    autosaveController.markDirty('terrain-parameter-updated');
   },
   (checked) => {
     terrainRing.setSlopeDebugVisible(checked);
@@ -150,6 +190,7 @@ const devPanel = createDevPanel(
       length: apcInterior.hull_d() * APC_GRID_CELL_SIZE,
     });
     apcInteriorView.rebuild();
+    autosaveController.markDirty(reset ? 'apc-hull-reset' : 'apc-hull-expanded');
   },
   (visible) => {
     apcInteriorView.setLabelsVisible(visible);
@@ -161,8 +202,46 @@ const devPanel = createDevPanel(
     const createdId = spawnRandomInteriorUnit(UnitSpecialization.Generalist);
     if (createdId >= 0) {
       apcInteriorView.rebuild();
+      autosaveController.markDirty('apc-unit-spawned');
     }
   },
+  (reportStatus) => {
+    snapshotRevision += 1;
+    const revision = snapshotRevision;
+
+    void (async () => {
+      const capture = await captureSnapshotBundlePaced(
+        sim,
+        apcInterior,
+        inputRouter,
+        revision,
+        (_phase, message) => {
+          reportStatus({ ok: null, message });
+        },
+      );
+      if (!capture.ok || !capture.bundle) {
+        reportStatus({ ok: false, message: capture.message });
+        return;
+      }
+
+      reportStatus({ ok: null, message: capture.message });
+      snapshotValidationQueue.enqueue(capture.bundle, (status) => {
+        reportStatus({ ok: status.ok, message: status.message });
+      });
+    })();
+  },
+  (reportStatus) => {
+    void (async () => {
+      const result = await autosaveController.saveNow();
+      reportStatus({ ok: result.ok, message: result.message });
+    })();
+  },
+  {
+    x: apcInterior.hull_w(),
+    y: apcInterior.hull_h(),
+    z: apcInterior.hull_d(),
+  },
+  autosaveController.getStatus().message,
 );
 
 registerTopBarChoiceSet({
@@ -215,6 +294,9 @@ startGameLoop({
   terrainRing,
   focusUi,
   generationUi,
+  onSimStep: () => {
+    autosaveController.markDirty('sim-step');
+  },
 });
 
 window.addEventListener('resize', () => {

@@ -329,6 +329,89 @@ impl MachineGrid {
         }
     }
 
+    pub fn transfer_interval(&self) -> u32 {
+        self.transfer_interval
+    }
+
+    pub fn tick_counter(&self) -> u32 {
+        self.tick_counter
+    }
+
+    pub fn set_tick_counter(&mut self, tick_counter: u32) {
+        self.tick_counter = if self.transfer_interval == 0 {
+            0
+        } else {
+            tick_counter % self.transfer_interval
+        };
+    }
+
+    pub fn restore_records(
+        &mut self,
+        machine_ids: &[u32],
+        parent_cells: &[u32],
+        footprints: &[u8],
+        kinds: &[u8],
+        output_faces: &[u8],
+        holding: &[u8],
+        next_machine_id: u32,
+        transfer_interval: u32,
+        tick_counter: u32,
+        cell_count: usize,
+    ) -> Result<(), &'static str> {
+        if transfer_interval == 0 {
+            return Err("transfer interval must be non-zero");
+        }
+        let len = machine_ids.len();
+        if parent_cells.len() != len
+            || footprints.len() != len
+            || kinds.len() != len
+            || output_faces.len() != len
+            || holding.len() != len
+        {
+            return Err("machine record arrays differ in length");
+        }
+
+        for i in 0..len {
+            if parent_cells[i] as usize >= cell_count {
+                return Err("machine parent cell out of bounds");
+            }
+            if footprints[i] == 0 || !Subgrid::footprint_is_box(footprints[i]) {
+                return Err("machine footprint invalid");
+            }
+            if output_faces[i] != NO_OUTPUT && Dir::from_index(output_faces[i] as usize).is_none() {
+                return Err("machine output face invalid");
+            }
+        }
+
+        let mut id_sorted = machine_ids.to_vec();
+        id_sorted.sort_unstable();
+        id_sorted.dedup();
+        if id_sorted.len() != len {
+            return Err("duplicate machine id");
+        }
+
+        let max_id = machine_ids.iter().copied().max().unwrap_or(0);
+        if len > 0 && next_machine_id <= max_id {
+            return Err("next machine id must exceed existing ids");
+        }
+
+        self.machine_ids = machine_ids.to_vec();
+        self.parent_cells = parent_cells.to_vec();
+        self.footprints = footprints.to_vec();
+        self.kinds = kinds.to_vec();
+        self.output_faces = output_faces.to_vec();
+        self.holding = holding.to_vec();
+        self.incoming = vec![NO_PRODUCT; len];
+        self.outgoing = vec![false; len];
+        self.primary_slot_by_cell = vec![NO_MACHINE; cell_count];
+        self.next_machine_id = next_machine_id;
+        self.transfer_interval = transfer_interval;
+        self.tick_counter = tick_counter % transfer_interval;
+
+        self.reindex();
+        Ok(())
+    }
+
     pub fn step(&mut self, lattice: &Lattice) {
         self.incoming.fill(NO_PRODUCT);
         self.outgoing.fill(false);

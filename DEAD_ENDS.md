@@ -14,13 +14,19 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 
 ## Save And Persistence Gaps
 
-- Single-slot local saving/restoration is now the proposed next foundation, before production gameplay; investigation only, no storage or snapshot implementation exists yet. See the detailed plan below.
+- Stage 1A save foundation is now implemented: versioned Sim/ApcInterior snapshot export/import validation in Rust plus a bounded transitional JS sortie snapshot adapter and a dev-panel round-trip validator using candidate state.
+- Stage 1A-i performance hardening is now in place: snapshot capture is separated from heavy candidate validation, and validation runs through a coalescing deferred queue (`requestIdleCallback` fallback to timeout) to reduce input-path hitching and establish revision ordering semantics needed for 1B writes.
+- Stage 1A-ii pacing/offload is now in place: snapshot capture is split into multi-frame stages (sortie -> sim -> interior) and deep round-trip validation now executes in a dedicated web worker. Main-thread validation stalls are removed; remaining hitch risk is bounded to per-stage capture export cost.
+- Stage 1B foundation is now implemented for a single local checkpoint: fixed-key IndexedDB save/load, Save now status surface, restore-before-controller startup path, APC target preservation on restore, loaded-hull UI initialization, and restore of active JS-owned sorties before gameplay resumes.
+- Corrupt/unsupported stored saves now enter a visible recovery state that preserves the stored record and blocks overwrite through Save now.
+- Stage 1C foundation is now implemented: dirty-state tracking, two-second autosave cadence, serialized single in-flight writes, stale-write protection, and best-effort lifecycle flush requests (`pagehide` / `visibilitychange`) with an awaitable flush API.
+- Multi-tab ownership currently uses a transactional revision-conflict fallback in IndexedDB (reject stale revisions) rather than an exclusive Web Lock lease.
 - Server sync, two-QR login, and remote save exchange remain deferred. The local-first milestone intentionally precedes the older server-owned-save proposal in `DESIGN.txt`; keep the snapshot format independent of its transport.
-- Array views expose many fields, but there is no authoritative snapshot import/export contract. Private identity counters, random progress, transfer/wander counters, world parameters, and active JavaScript sorties must also be accounted for.
+- Authoritative snapshot import/export contracts now exist for Sim and ApcInterior (JSON envelope, format/content versions, bounded validation, and error reporting), including private counters and RNG-related state needed for deterministic continuation. The contract still needs migration fixtures and startup integration in 1B.
 
 ### Single-Slot Local Save Plan
 
-Status: proposed implementation plan, not implemented behaviour. One logical local save automatically resumes on startup; no slot selector, account flow, or offline production is needed for this milestone.
+Status: stage 1A foundations are functional and test-backed; stage 1B/1C transport/boot/autosave behavior remains to implement. One logical local save automatically resumes on startup; no slot selector, account flow, or offline production is needed for this milestone.
 
 - **SAVE-OWNERSHIP:** Rust owns serialization/validation of simulation domains; a small TypeScript persistence controller owns lifecycle, scheduling and transport. Keep existing `Sim`/`ApcInterior` facades and collect both into one versioned snapshot at a consistent boundary. Introduce a storage adapter so IndexedDB can later be complemented by server storage without rewriting simulation serialization. Any transitional JS-owned gameplay state needs its own explicit snapshot section, not a second copy of Rust-owned state.
 - **SAVE-STORAGE:** Recommended first backend: IndexedDB with one fixed active-save key containing the complete snapshot and its revision/metadata in one transaction. This accommodates binary data and asynchronous storage. A single logical save does not require multi-slot UI. Never delete the old record before replacement; report success only after transaction completion, retain dirty state on failure, and expose saved/saving/error status. Storage is local to the browser profile and origin, so a different dev-server origin does not share the slot. Persistence/eviction policy and optional export can be added separately; do not imply a browser-local save is a remote backup.

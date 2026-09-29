@@ -49,7 +49,6 @@ export async function bootstrapApp(): Promise<AppBootstrap> {
 
   initCameraControls(camera, renderer.domElement);
   updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
-  sim.set_apc_target(sim.apc_x(), sim.apc_z());
 
   return {
     scene,

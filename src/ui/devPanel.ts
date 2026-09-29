@@ -105,6 +105,14 @@ export function createDevPanel(
   onApcInteriorLabelsToggle?: (visible: boolean) => void,
   onApcHullToggle?: (visible: boolean) => void,
   onAddApcInteriorUnit?: () => void,
+  onRunSnapshotRoundTrip?: (
+    reportStatus: (status: { ok: boolean | null; message: string }) => void,
+  ) => void,
+  onSaveNow?: (
+    reportStatus: (status: { ok: boolean | null; message: string }) => void,
+  ) => void,
+  initialApcCells?: { x: number; y: number; z: number },
+  initialSaveStatusMessage?: string,
 ): DevPanelController {
   const blizzardSettings: BlizzardMaskSettings = { ...BLIZZARD_DEFAULTS };
   const slopeSettings = {
@@ -419,9 +427,9 @@ export function createDevPanel(
   apcSpeedValueSpan = apcSpeedRow.valueSpan;
 
   const apcCellCounts = {
-    x: APC_CELLS_DEFAULT_X,
-    y: APC_CELLS_DEFAULT_Y,
-    z: APC_CELLS_DEFAULT_Z,
+    x: Math.min(Math.max(initialApcCells?.x ?? APC_CELLS_DEFAULT_X, 1), APC_ENVELOPE_X),
+    y: Math.min(Math.max(initialApcCells?.y ?? APC_CELLS_DEFAULT_Y, 1), APC_ENVELOPE_Y),
+    z: Math.min(Math.max(initialApcCells?.z ?? APC_CELLS_DEFAULT_Z, 1), APC_ENVELOPE_Z),
   };
   const apcCellMax = {
     x: APC_ENVELOPE_X,
@@ -529,6 +537,70 @@ export function createDevPanel(
   });
   addInteriorUnitRow.appendChild(addInteriorUnitButton);
   testingPanel.appendChild(addInteriorUnitRow);
+
+  const snapshotRoundTripRow = document.createElement('div');
+  snapshotRoundTripRow.style.cssText =
+    'display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const snapshotRoundTripButton = document.createElement('button');
+  snapshotRoundTripButton.type = 'button';
+  snapshotRoundTripButton.textContent = 'Snapshot round-trip';
+  snapshotRoundTripButton.style.cssText =
+    'border:0; border-radius:4px; padding:4px 8px; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font:inherit;';
+  const snapshotRoundTripStatus = document.createElement('span');
+  snapshotRoundTripStatus.textContent = 'status: idle';
+  snapshotRoundTripStatus.style.cssText = 'font-size:11px; opacity:0.9;';
+  snapshotRoundTripButton.addEventListener('click', () => {
+    if (!onRunSnapshotRoundTrip) {
+      snapshotRoundTripStatus.textContent = 'status: unavailable';
+      snapshotRoundTripStatus.style.color = '#ffd166';
+      return;
+    }
+    snapshotRoundTripStatus.textContent = 'status: capturing...';
+    snapshotRoundTripStatus.style.color = '#ffd166';
+    onRunSnapshotRoundTrip((status) => {
+      snapshotRoundTripStatus.textContent = `status: ${status.message}`;
+      if (status.ok === null) {
+        snapshotRoundTripStatus.style.color = '#ffd166';
+        return;
+      }
+      snapshotRoundTripStatus.style.color = status.ok ? '#8ef08e' : '#ff8f8f';
+    });
+  });
+  snapshotRoundTripRow.appendChild(snapshotRoundTripButton);
+  snapshotRoundTripRow.appendChild(snapshotRoundTripStatus);
+  testingPanel.appendChild(snapshotRoundTripRow);
+
+  const saveNowRow = document.createElement('div');
+  saveNowRow.style.cssText =
+    'display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:4px; color:#fff;';
+  const saveNowButton = document.createElement('button');
+  saveNowButton.type = 'button';
+  saveNowButton.textContent = 'Save now';
+  saveNowButton.style.cssText =
+    'border:0; border-radius:4px; padding:4px 8px; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font:inherit;';
+  const saveNowStatus = document.createElement('span');
+  saveNowStatus.textContent = `status: ${initialSaveStatusMessage ?? 'idle'}`;
+  saveNowStatus.style.cssText = 'font-size:11px; opacity:0.9;';
+  saveNowButton.addEventListener('click', () => {
+    if (!onSaveNow) {
+      saveNowStatus.textContent = 'status: unavailable';
+      saveNowStatus.style.color = '#ffd166';
+      return;
+    }
+    saveNowStatus.textContent = 'status: saving...';
+    saveNowStatus.style.color = '#ffd166';
+    onSaveNow((status) => {
+      saveNowStatus.textContent = `status: ${status.message}`;
+      if (status.ok === null) {
+        saveNowStatus.style.color = '#ffd166';
+        return;
+      }
+      saveNowStatus.style.color = status.ok ? '#8ef08e' : '#ff8f8f';
+    });
+  });
+  saveNowRow.appendChild(saveNowButton);
+  saveNowRow.appendChild(saveNowStatus);
+  testingPanel.appendChild(saveNowRow);
 
   const interiorLabelRow = document.createElement('div');
   interiorLabelRow.style.cssText =
