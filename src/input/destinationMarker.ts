@@ -145,7 +145,7 @@ function createMarkerController(
       for (const waypoint of debugMarkerState.queue) {
         const dynamicLine = new THREE.Line(
           terrainLineGeometry(
-            sim.apc_x(), apcWorldY, sim.apc_z(),
+            sim.apc_x(), apcWorldY + LINE_Y_NUDGE, sim.apc_z(),
             waypoint.x, pinY(waypoint.x, waypoint.z), waypoint.z,
             heightAt,
           ),
@@ -158,7 +158,7 @@ function createMarkerController(
       const first = debugMarkerState.queue[0];
       const dynamicLine = new THREE.Line(
         terrainLineGeometry(
-          sim.apc_x(), apcWorldY, sim.apc_z(),
+          sim.apc_x(), apcWorldY + LINE_Y_NUDGE, sim.apc_z(),
           first.x, pinY(first.x, first.z), first.z,
           heightAt,
         ),
@@ -189,7 +189,7 @@ function createMarkerController(
 
       const x0 = sim.apc_x();
       const z0 = sim.apc_z();
-      const y0 = sim.apc_y();
+      const y0 = sim.apc_y() + LINE_Y_NUDGE;
       const x1 = target.x;
       const z1 = target.z;
       const y1 = sim.height_at_or_sample(x1, z1) * sim.height_mult() + LINE_Y_NUDGE;

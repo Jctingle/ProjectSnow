@@ -35,6 +35,11 @@ import { createAutosaveController } from './save/autosaveController';
 const { scene, camera, renderer, composer, tiltShift, sim } = await bootstrapApp();
 const apcInterior = getApcInterior();
 const restoreResult = await restoreBeforeStart(sim, apcInterior);
+if (restoreResult.mode === 'loaded') {
+  // Ensure cached maps used by click validation and overlays are regenerated
+  // from the restored sim state before any controllers start reading them.
+  refreshHeightmap();
+}
 updateCameraFollow(camera, sim.apc_x(), sim.apc_y(), sim.apc_z());
 
 let saveRevision = restoreResult.revision;

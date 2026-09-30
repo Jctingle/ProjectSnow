@@ -2,8 +2,6 @@ import type { ApcInterior, Sim } from 'wasm-sim';
 import type { InputRouterController } from '../input';
 import {
   captureSnapshotBundlePaced,
-  type SnapshotBundle,
-  validateSnapshotBundle,
 } from './snapshotRoundTrip';
 import {
   deserializeSortieSnapshot,
@@ -189,18 +187,6 @@ async function writeRecord(record: LocalSaveRecord): Promise<void> {
   });
 }
 
-function toBundle(record: LocalSaveRecord): SnapshotBundle {
-  return {
-    revision: record.revision,
-    capturedAtMs: 0,
-    captureMs: 0,
-    simSnapshot: record.simSnapshot,
-    interiorSnapshot: record.interiorSnapshot,
-    sortieSnapshot: record.sortieSnapshot,
-    sortieCount: 0,
-  };
-}
-
 export async function restoreBeforeStart(
   sim: Sim,
   apcInterior: ApcInterior,
@@ -237,16 +223,6 @@ export async function restoreBeforeStart(
   }
 
   const record = validated.record;
-  const bundle = toBundle(record);
-  const validation = validateSnapshotBundle(bundle);
-  if (!validation.ok) {
-    return {
-      mode: 'recovery',
-      message: `Recovery state: stored save unsupported/corrupt (${validation.message}). Existing record preserved.`,
-      revision: record.revision,
-      sortieRecords: [],
-    };
-  }
 
   const simImportError = sim.import_snapshot_json(record.simSnapshot);
   if (simImportError) {

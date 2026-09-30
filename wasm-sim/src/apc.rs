@@ -140,6 +140,10 @@ impl Apc {
         self.target_requires_shard_crossing = target_requires_shard_crossing;
     }
 
+    pub fn refresh_height_from_terrain(&mut self, terrain: &Terrain) {
+        self.y = terrain.height_at_or_sample(self.x, self.z) * terrain.height_mult();
+    }
+
     pub fn set_speed(&mut self, v: f32) {
         self.speed = v;
     }

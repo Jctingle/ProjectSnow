@@ -594,6 +594,7 @@ impl Sim {
             payload.apc.cliff_threshold_deg,
             payload.apc.target_requires_shard_crossing,
         );
+        self.apc.refresh_height_from_terrain(&self.current.terrain);
         Ok(())
     }
 

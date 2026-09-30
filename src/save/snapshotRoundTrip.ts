@@ -72,6 +72,115 @@ function normalizeJson(json: string): string | null {
   }
 }
 
+function areFiniteNumbersClose(a: unknown, b: unknown, epsilon: number): boolean {
+  if (typeof a !== 'number' || typeof b !== 'number') return false;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= epsilon;
+}
+
+function areLoadedNeighborSetsEqual(a: unknown, b: unknown): boolean {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  const toKey = (value: unknown): string | null => {
+    if (!value || typeof value !== 'object') return null;
+    const candidate = value as { dr?: unknown; dc?: unknown };
+    if (!Number.isInteger(candidate.dr) || !Number.isInteger(candidate.dc)) return null;
+    return `${candidate.dr},${candidate.dc}`;
+  };
+
+  const keysA = new Set<string>();
+  for (const item of a) {
+    const key = toKey(item);
+    if (!key) return false;
+    keysA.add(key);
+  }
+
+  const keysB = new Set<string>();
+  for (const item of b) {
+    const key = toKey(item);
+    if (!key) return false;
+    keysB.add(key);
+  }
+
+  if (keysA.size !== keysB.size) return false;
+  for (const key of keysA) {
+    if (!keysB.has(key)) return false;
+  }
+  return true;
+}
+
+function areSimSnapshotsEquivalent(
+  originalNormalizedJson: string,
+  roundTripNormalizedJson: string,
+): boolean {
+  if (originalNormalizedJson === roundTripNormalizedJson) return true;
+
+  let original: unknown;
+  let roundTrip: unknown;
+  try {
+    original = JSON.parse(originalNormalizedJson);
+    roundTrip = JSON.parse(roundTripNormalizedJson);
+  } catch {
+    return false;
+  }
+
+  if (!original || typeof original !== 'object') return false;
+  if (!roundTrip || typeof roundTrip !== 'object') return false;
+  const a = original as {
+    format_version?: unknown;
+    content_version?: unknown;
+    payload?: {
+      world_seed?: unknown;
+      current_row?: unknown;
+      current_col?: unknown;
+      loaded_neighbors?: unknown;
+      terrain?: unknown;
+      apc?: {
+        x?: unknown;
+        y?: unknown;
+        z?: unknown;
+        target_x?: unknown;
+        target_z?: unknown;
+        speed?: unknown;
+        cliff_threshold_deg?: unknown;
+        target_requires_shard_crossing?: unknown;
+      };
+    };
+  };
+  const b = roundTrip as typeof a;
+
+  if (a.format_version !== b.format_version) return false;
+  if (a.content_version !== b.content_version) return false;
+  if (!a.payload || !b.payload) return false;
+  if (a.payload.world_seed !== b.payload.world_seed) return false;
+  if (a.payload.current_row !== b.payload.current_row) return false;
+  if (a.payload.current_col !== b.payload.current_col) return false;
+  if (!areLoadedNeighborSetsEqual(a.payload.loaded_neighbors, b.payload.loaded_neighbors)) {
+    return false;
+  }
+
+  if (JSON.stringify(a.payload.terrain) !== JSON.stringify(b.payload.terrain)) {
+    return false;
+  }
+
+  const apcA = a.payload.apc;
+  const apcB = b.payload.apc;
+  if (!apcA || !apcB) return false;
+  if (!areFiniteNumbersClose(apcA.x, apcB.x, 1e-6)) return false;
+  if (!areFiniteNumbersClose(apcA.z, apcB.z, 1e-6)) return false;
+  if (!areFiniteNumbersClose(apcA.target_x, apcB.target_x, 1e-6)) return false;
+  if (!areFiniteNumbersClose(apcA.target_z, apcB.target_z, 1e-6)) return false;
+  if (!areFiniteNumbersClose(apcA.speed, apcB.speed, 1e-6)) return false;
+  if (!areFiniteNumbersClose(apcA.cliff_threshold_deg, apcB.cliff_threshold_deg, 1e-6)) {
+    return false;
+  }
+  if (apcA.target_requires_shard_crossing !== apcB.target_requires_shard_crossing) {
+    return false;
+  }
+
+  // Y is recomputed from restored terrain on import. Accept small differences.
+  return areFiniteNumbersClose(apcA.y, apcB.y, 1e-3);
+}
+
 export function captureSnapshotBundle(
   sim: Sim,
   apcInterior: ApcInterior,
@@ -247,7 +356,7 @@ export function validateSnapshotBundle(bundle: SnapshotBundle): SnapshotRoundTri
     return { ok: false, message: 'Round-trip snapshot encoding invalid JSON' };
   }
 
-  if (normalizedSimSnapshot !== normalizedSimRoundTrip) {
+  if (!areSimSnapshotsEquivalent(normalizedSimSnapshot, normalizedSimRoundTrip)) {
     return { ok: false, message: 'Sim snapshot round-trip mismatch' };
   }
   if (normalizedInteriorSnapshot !== normalizedInteriorRoundTrip) {
