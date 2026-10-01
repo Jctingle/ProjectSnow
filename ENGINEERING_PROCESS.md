@@ -24,6 +24,27 @@
 4. Validate determinism and correctness first, then tune visuals/perf.
 5. Document resulting status in [DEAD_ENDS.md](DEAD_ENDS.md) when scope or readiness changed.
 
+## Save Compatibility Gate (Required)
+
+Every gameplay-affecting change must pass this gate before it is considered complete.
+
+1. **State Ownership Declared**
+	- Identify what is authoritative (Rust/Sim domains), what is transitional bridge state (TypeScript), and what is derived/transient and rebuilt on load.
+2. **Snapshot Impact Implemented**
+	- Add or update snapshot fields for new persistent state.
+	- Keep stable identifiers and explicit version compatibility behavior.
+3. **Restore Path Verified**
+	- Validate imports before publication.
+	- Restore must not partially mutate live state on failure.
+4. **Continuation Equivalence Checked**
+	- Verify resumed simulation behavior is consistent with uninterrupted progression for the same command stream.
+5. **Failure Modes Covered**
+	- Corrupt/unsupported payload behavior must preserve existing stored data and surface visible recovery/error status.
+6. **Performance Budget Respected**
+	- New persistence logic must not introduce routine interaction hitches; use paced capture/off-thread validation where needed.
+7. **Docs Updated Same Task**
+	- Update [DEAD_ENDS.md](DEAD_ENDS.md) readiness and any changed compatibility assumptions in the same change.
+
 ## Refactor Workflow
 
 - Prefer extraction in narrow slices that preserve the existing public facade while moving one internal responsibility at a time.
@@ -46,6 +67,7 @@
 - Use explicit format/content versions and stable identifiers. Preserve resume-critical counters, random state, fractional progress, and pending transactions. Never silently treat incompatible or corrupt data as a new game.
 - Save copied snapshots, not live typed-array views. Serialize writes, acknowledge only completed storage transactions, and keep changes made during a write dirty. Define single-writer ownership for a shared save slot.
 - Validate round-trip restoration and continued simulation equivalence, including interrupted work and migrations. A feature that restores its display but changes subsequent gameplay has not met its restoration contract.
+- Treat save compatibility as a release gate, not a polish pass: new mechanics are incomplete until their persistence path, migration behavior, and restore continuation checks are in place.
 
 ## Documentation Discipline
 

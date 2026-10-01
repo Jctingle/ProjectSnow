@@ -24,9 +24,23 @@ Update rule: if a system changes status (revived, replaced, removed, or newly de
 - Server sync, two-QR login, and remote save exchange remain deferred. The local-first milestone intentionally precedes the older server-owned-save proposal in `DESIGN.txt`; keep the snapshot format independent of its transport.
 - Authoritative snapshot import/export contracts now exist for Sim and ApcInterior (JSON envelope, format/content versions, bounded validation, and error reporting), including private counters and RNG-related state needed for deterministic continuation. Migration fixtures and broader compatibility coverage remain open follow-up work.
 
+### Ongoing Requirement For All New Features
+
+From this point onward, a feature that changes simulation behavior is **not done** unless it includes save-system alignment in the same implementation slice:
+
+1. Snapshot field updates (or explicit transient exclusion) for all new authoritative state.
+2. Compatibility behavior for older saves (migrate or reject with visible recovery/error state).
+3. Restore-before-play validation and deterministic continuation checks.
+4. Failure-path tests (malformed payload, incompatible payload, interrupted write behavior where applicable).
+5. Documentation update in this file describing readiness and any remaining gaps.
+
+If this list is not satisfied, mark the feature as partial in this file rather than implicitly treating it as complete.
+
 ### Single-Slot Local Save Plan
 
 Status: stages 1A through 1C foundations are functional and test-backed for local single-slot persistence (snapshot validation, restore-before-start, manual save, autosave cadence, lifecycle flush requests, and stale-write protection). One logical local save automatically resumes on startup; no slot selector, account flow, or offline production is needed for this milestone.
+
+Current policy for new work: extend this save plan incrementally with each gameplay stage instead of batching persistence at the end.
 
 - **SAVE-OWNERSHIP:** Rust owns serialization/validation of simulation domains; a small TypeScript persistence controller owns lifecycle, scheduling and transport. Keep existing `Sim`/`ApcInterior` facades and collect both into one versioned snapshot at a consistent boundary. Introduce a storage adapter so IndexedDB can later be complemented by server storage without rewriting simulation serialization. Any transitional JS-owned gameplay state needs its own explicit snapshot section, not a second copy of Rust-owned state.
 - **SAVE-STORAGE:** Recommended first backend: IndexedDB with one fixed active-save key containing the complete snapshot and its revision/metadata in one transaction. This accommodates binary data and asynchronous storage. A single logical save does not require multi-slot UI. Never delete the old record before replacement; report success only after transaction completion, retain dirty state on failure, and expose saved/saving/error status. Storage is local to the browser profile and origin, so a different dev-server origin does not share the slot. Persistence/eviction policy and optional export can be added separately; do not imply a browser-local save is a remote backup.
