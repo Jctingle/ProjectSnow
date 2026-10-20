@@ -77,6 +77,41 @@ Browser references: [IndexedDB transactions](https://developer.mozilla.org/en-US
 - Building exploration loop (focus transitions, explored-floor progression rules, structure risk loops) is not complete.
 - Encounter-based multiplayer is deferred.
 
+## Additional Feature Roadmap Additions (2026-10-20)
+
+Status: requested and now explicitly tracked; none of the systems in this section are implemented unless noted elsewhere.
+
+### Feature Tracks To Add After Current Production Foundations
+
+1. **UNIT-PROGRESSION-RESEARCH**
+	- Add a deterministic unit progression system tied to a research system.
+	- Research unlocks and progression effects must be authoritative simulation state (not UI-only flags), with explicit compatibility/migration behavior for saves.
+	- Track per-unit progression state, global/branch research state, and unlocked capability versions so resumed saves cannot drift from unlock rules.
+2. **VEHICLES-AND-MECHS (SIMPLE FIRST SLICE)**
+	- Add a first simple vehicle/mech gameplay slice with authoritative movement/interaction rules.
+	- Start with minimal deterministic behavior (spawn/deploy/control/recover), then extend with role-specific logic after baseline save/restore continuity is proven.
+	- Define ownership and identity model now so later expansion does not require ID/schema resets.
+3. **RUINS-EXPLORATION LOOP**
+	- Add ruin exploration as a concrete mission loop rather than only placeholder structure content.
+	- Capture discovered/explored state, interaction outcomes, and any cooldown/lock state in save data.
+	- Keep world-node identity stable so revisits and partial exploration resume correctly across loads.
+4. **STRUCTURE-INTERACTIONS**
+	- Add explicit structure interaction states (enter, inspect, harvest/salvage, trigger/result) with deterministic outcomes.
+	- Ensure interactions are simulation-authoritative and replay-safe; avoid render-timing or wall-clock-only completion paths.
+5. **APC-EXTERNAL-MODULES-AND-HEALTH**
+	- Add APC external weapon/module support and APC health/damage state as first-class simulation state.
+	- Preserve compatibility with current exterior-object plan while preparing for larger externals that occupy multiple surface components.
+	- Add occupancy rules supporting at least a future 3-surface-component external object footprint, including validation, collision/overlap rejection, and stable save representation.
+
+### Ordering Guidance
+
+- Recommended stage order after the current production core: UNIT-PROGRESSION-RESEARCH -> RUINS-EXPLORATION + STRUCTURE-INTERACTIONS -> VEHICLES-AND-MECHS (simple slice) -> APC-EXTERNAL-MODULES-AND-HEALTH.
+- If APC health is needed earlier for combat balancing, split it from external modules but keep the same save-contract requirements.
+
+### Save Contract Requirement For These Tracks
+
+- For each track above, treat implementation as incomplete until save fields, compatibility policy (migrate/reject), restore validation, continuation equivalence checks, and failure-path tests are merged in the same slice.
+
 ## Visual And UX Items Deferred
 
 - Final stylization stack (rim-lighting tuning, pixelation policy, tilt-shift policy) is deferred behind core-loop stability.
@@ -130,6 +165,10 @@ Status: proposed data contract; no recipe file, parser, or execution changes imp
 4. Add authoritative movement/delivery and then the complete harvest/carry/return/deposit order, extending saved order/cargo state and retiring the sortie adapter.
 5. Add refinery recipes, then forge stages, then manifold intake/buffer/frame delivery. Give all refinery byproducts storage space even before they have downstream uses; retain the existing machine-size ladder and agreed production/cost formula. Test restoration during processing at each step.
 6. Add unit heat/refuelling, then material conduits and larger storage networks once direct transfers and demand accounting work.
+7. Add unit progression tied to research unlocks, with deterministic progression state, compatibility handling, and reload continuation tests.
+8. Add ruins exploration and structure-interaction loops as authoritative mission state (not only presentation), including partial-progress reload checks.
+9. Add a simple vehicles/mechs slice (authoritative movement/deploy/recover baseline), then extend capabilities incrementally with migration-safe state additions.
+10. Add APC health and external module systems, including support for future externals that occupy up to 3 exterior surface components with validated footprint/overlap rules.
 
 Multi-input acceptance target: a processor above the forge and a refinery beside it can both deliver their respective ingredients while the forge can send finished HeAt to the opposite-side manifold. Verify vertical and horizontal footprint contact, asynchronous ingredient arrival, incompatible-item rejection, ingredient capacity protection, contested inputs without duplication, and backpressure from a full/rate-limited manifold. Exercise connections within a cell and across cell boundaries at supported machine sizes.
 
