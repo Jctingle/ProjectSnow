@@ -1,6 +1,6 @@
 use super::*;
 use crate::lattice::CELL_OUTSIDE;
-use crate::subgrid::OCCUPANT_MACHINE;
+use crate::subgrid::{OCCUPANT_MACHINE, OCCUPANT_UNIT};
 use std::slice;
 
 const ENVELOPE: (usize, usize, usize) = (15, 10, 20);
